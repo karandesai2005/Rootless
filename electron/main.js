@@ -1,12 +1,23 @@
-const {app, BrowserWindow} = require('electron');
+const { app, BrowserWindow } = require('electron');
 const path = require('path');
-function create(){ 
-  const w = new BrowserWindow({
-    width:900,height:700,
-    webPreferences:{
-      preload: path.join(__dirname,'preload.js'),
+
+function createWindow() {
+  const win = new BrowserWindow({
+    width: 1000,
+    height: 700,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,      // important: keep Node off in renderer
+      contextIsolation: true,      // important: isolate context
     }
   });
-  w.loadFile('index.html');
+
+  win.loadFile('index.html');
+  // win.webContents.openDevTools(); // uncomment while debugging
 }
-app.whenReady().then(create);
+
+app.whenReady().then(createWindow);
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});

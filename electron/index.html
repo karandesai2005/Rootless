@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Pentest Desktop — MVP</title>
+  <style>
+    body { font-family: Inter, system-ui, sans-serif; margin: 18px; }
+    input, button { font-size: 14px; padding: 8px; margin: 6px 0; }
+    #out { white-space: pre-wrap; background:#111; color:#eee; padding:12px; border-radius:6px; height:300px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <h2>Pentest Desktop — MVP</h2>
+  <label>Tool (allowed: dummy-wasm)</label><br/>
+  <input id="tool" placeholder="tool name" value="dummy-wasm"/><br/>
+  <label>Target</label><br/>
+  <input id="target" placeholder="127.0.0.1"/><br/>
+  <button id="run">Run</button>
+  <h3>Output</h3>
+  <div id="out">—</div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
