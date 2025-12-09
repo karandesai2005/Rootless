@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import httpx
 import uvicorn
 
 app = FastAPI()
 
-ALLOWED = {"dummy-wasm"}  # whitelist so nothing dangerous runs
+ALLOWED = {"dummy-wasm"}   # remove this later when adding more tools
+GO_URL = "http://127.0.0.1:9000/exec"
 
 class Req(BaseModel):
     tool: str
@@ -15,20 +17,13 @@ async def run(req: Req):
     if req.tool not in ALLOWED:
         raise HTTPException(status_code=400, detail="tool not allowed")
 
-    # This is temporary until sandbox exists
-    output = {
-        "tool": req.tool,
-        "target": req.target,
-        "result": f"Simulated execution of {req.tool} on {req.target}",
-    }
+    async with httpx.AsyncClient() as client:
+        go_response = await client.post(GO_URL, json={
+            "tool": req.tool,
+            "target": req.target,
+        })
 
-    return output
-
+    return go_response.json()
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)
-'''
-FastAPI = framework for HTTP APIs
- Pydantic = validates request data
- Uvicorn = lightweight server (very fast)
-'''
