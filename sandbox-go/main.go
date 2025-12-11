@@ -1,53 +1,96 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os/exec"
 	"time"
 )
 
-func execHandler(w http.ResponseWriter, r *http.Request) {
+type WasmRequest struct {
+	Module string `json:"module"`
+	Target string `json:"target"`
+}
+
+type SystemRequest struct {
+	Cmd string `json:"cmd"`
+}
+
+func sendHeaders(w http.ResponseWriter) http.Flusher {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
-		return
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return nil
 	}
 
-	// Read query params (no request body)
-	tool := r.URL.Query().Get("tool")
-	target := r.URL.Query().Get("target")
-	if tool == "" || target == "" {
-		http.Error(w, "missing tool or target", http.StatusBadRequest)
-		return
-	}
-
-	log.Printf("🔥 Go: /exec called (tool=%s target=%s)\n", tool, target)
-
-	// SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Immediate heartbeat so client treats stream as open
 	fmt.Fprintf(w, "data: start\n\n")
 	flusher.Flush()
+	return flusher
+}
 
-	// Simulated tool streaming output
+func wasmHandler(w http.ResponseWriter, r *http.Request) {
+	flusher := sendHeaders(w)
+	if flusher == nil { return }
+
+	var req WasmRequest
+	json.NewDecoder(r.Body).Decode(&req)
+
 	for i := 1; i <= 5; i++ {
-		msg := fmt.Sprintf("data: step %d: executing %s on %s\n\n", i, tool, target)
-		fmt.Fprint(w, msg)
+		fmt.Fprintf(w, "data: wasm-step-%d: %s on %s\n\n", i, req.Module, req.Target)
 		flusher.Flush()
-		time.Sleep(700 * time.Millisecond)
+		time.Sleep(600 * time.Millisecond)
 	}
 
-	fmt.Fprint(w, "data: DONE\n\n")
+	fmt.Fprintf(w, "data: DONE\n\n")
+	flusher.Flush()
+}
+
+func systemHandler(w http.ResponseWriter, r *http.Request) {
+	flusher := sendHeaders(w)
+	if flusher == nil { return }
+
+	var req SystemRequest
+	json.NewDecoder(r.Body).Decode(&req)
+
+	cmd := exec.Command("bash", "-c", req.Cmd)
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+	cmd.Start()
+
+	buf := make([]byte, 256)
+	for {
+		n, _ := stdout.Read(buf)
+		if n > 0 {
+			fmt.Fprintf(w, "data: %s\n\n", string(buf[:n]))
+			flusher.Flush()
+		}
+
+		e, _ := stderr.Read(buf)
+		if e > 0 {
+			fmt.Fprintf(w, "data: %s\n\n", string(buf[:e]))
+			flusher.Flush()
+		}
+
+		if n == 0 && e == 0 {
+			break
+		}
+	}
+
+	fmt.Fprintf(w, "data: DONE\n\n")
 	flusher.Flush()
 }
 
 func main() {
-	http.HandleFunc("/exec", execHandler)
-	log.Println("Go sandbox listening on :9000")
+	http.HandleFunc("/run-wasm", wasmHandler)
+	http.HandleFunc("/run-system", systemHandler)
+
+	log.Println("🔥 Go sandbox listening on :9000")
 	log.Fatal(http.ListenAndServe(":9000", nil))
 }

@@ -2,76 +2,79 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
+import json
 import uvicorn
 
 app = FastAPI()
 
-# CORS for Electron EventSource
+# Enable CORS because Electron needs it
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-ALLOWED = {"dummy-wasm"}
-GO_URL = "http://127.0.0.1:9000/exec"
+# Load tools.json
+def load_tools():
+    with open("tools.json") as f:
+        return json.load(f)
 
+TOOLS = load_tools()
+
+def find_tool(tool_id: str):
+    for category in TOOLS.values():
+        for t in category:
+            if t["id"] == tool_id:
+                return t
+    return None
+
+
+# ★★★★★ THE HEART OF ROUTING ★★★★★
 @app.get("/stream")
 async def stream(tool: str, target: str):
-    print("🔥 Python: /stream called", tool, target)
 
-    if tool not in ALLOWED:
-        raise HTTPException(status_code=400, detail="tool not allowed")
+    tool_info = find_tool(tool)
+    if not tool_info:
+        raise HTTPException(400, "Unknown tool")
 
-    # ✅ FIX: Create client outside, keep it alive during streaming
-    client = httpx.AsyncClient(timeout=None)
-    
-    async def event_generator():
-        try:
-            print("🔥 Python: GET -> Go sandbox with query params")
-            # ✅ Open stream inside generator so it stays alive
-            async with client.stream(
-                "GET",
-                GO_URL,
-                params={"tool": tool, "target": target}
-            ) as resp:
-                print("🔥 Python: Go status =", resp.status_code)
-                
-                if resp.status_code != 200:
-                    error_text = await resp.aread()
-                    print(f"❌ Python: Go returned {resp.status_code}: {error_text}")
-                    yield f"data: Error from Go: {error_text}\n\n"
-                    return
+    # WASM tool
+    if tool_info["type"] == "wasm":
+        go_url = "http://127.0.0.1:9000/run-wasm"
+        payload = {"module": tool_info["module"], "target": target}
 
-                async for chunk in resp.aiter_text():
-                    if chunk.strip():  # Only forward non-empty chunks
-                        print("🔥 Python FORWARDED:", chunk.strip())
-                        yield chunk
-                        
-                print("✅ Python: Stream completed successfully")
-                
-        except httpx.ConnectError as e:
-            print(f"❌ Python: Cannot connect to Go: {e}")
-            yield "data: [ERROR] Cannot connect to Go sandbox\n\n"
-        except Exception as e:
-            print(f"⚠️ Python: Stream error: {e}")
-            yield "data: [ERROR] Stream closed unexpectedly\n\n"
-        finally:
-            # ✅ Clean up client after streaming completes
-            await client.aclose()
-            print("🔥 Python: Client closed")
+    # System tool
+    elif tool_info["type"] == "system":
+        go_url = "http://127.0.0.1:9000/run-system"
+        cmd = tool_info["cmd"].replace("{TARGET}", target)
+        payload = {"cmd": cmd}
 
-    return StreamingResponse(
-        event_generator(), 
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive"
-        }
-    )
+    else:
+        raise HTTPException(400, "Unsupported tool type")
+
+
+    # ★ STREAM PROXY TO GO SANDBOX ★
+    async def stream_gen():
+        async with httpx.AsyncClient(timeout=None) as client:
+            try:
+                async with client.stream("POST", go_url, json=payload) as resp:
+
+                    async for chunk in resp.aiter_text():
+                        if chunk.strip():
+                            yield f"{chunk}"
+
+                yield "data: DONE\n\n"
+
+            except Exception as e:
+                yield f"data: ERROR: {str(e)}\n\n"
+
+
+    return StreamingResponse(stream_gen(), media_type="text/event-stream")
+
+
+@app.get("/tools")
+def get_tools():
+    return TOOLS
 
 
 if __name__ == "__main__":

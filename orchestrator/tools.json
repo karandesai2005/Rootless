@@ -1,0 +1,14 @@
+{
+  "network": [
+    { "id": "nmap", "name": "Nmap Scan", "type": "system", "cmd": "nmap -sV {TARGET}" },
+    { "id": "dummy-wasm", "name": "Dummy WASM", "type": "wasm", "module": "dummy.wasm" }
+  ],
+
+  "web": [
+    { "id": "gobuster", "name": "Gobuster", "type": "system", "cmd": "gobuster dir -u {TARGET} -w wordlist.txt" }
+  ],
+
+  "wireless": [
+    { "id": "airmon", "name": "Airmon-ng", "type": "system", "cmd": "airmon-ng start wlan0" }
+  ]
+}
