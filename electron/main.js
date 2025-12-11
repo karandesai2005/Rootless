@@ -3,21 +3,20 @@ const path = require('path');
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1000,
-    height: 700,
+    width: 8000,
+    height: 800,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: false,      // important: keep Node off in renderer
-      contextIsolation: true,      // important: isolate context
+      contextIsolation: true,
+      nodeIntegration: false,
+
+      // 🔥 REQUIRED FOR EventSource to localhost
+      webSecurity: false,
+      allowRunningInsecureContent: true
     }
   });
 
   win.loadFile('index.html');
-  // win.webContents.openDevTools(); // uncomment while debugging
 }
 
 app.whenReady().then(createWindow);
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
