@@ -1,0 +1,26 @@
+{
+  "id": "nmap",
+  "name": "Nmap",
+  "type": "system",
+  "binary": "nmap",
+  "profile": "nmap.profile",
+
+  "scans": {
+    "quick": {
+      "label": "Quick Scan",
+      "args": ["-T4"]
+    },
+    "service": {
+      "label": "Service Scan",
+      "args": ["-sV", "-T4"]
+    },
+    "tcp": {
+      "label": "TCP Connect Scan",
+      "args": ["-sT", "-T4"]
+    },
+    "ping": {
+      "label": "Ping Sweep",
+      "args": ["-sn"]
+    }
+  }
+}

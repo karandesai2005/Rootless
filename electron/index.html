@@ -1,106 +1,253 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Pentest Desktop — MVP</title>
+  <title>Rootless — Secure Pentesting Console</title>
 
   <style>
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: Inter, sans-serif;
-      display: flex;
-      height: 100vh;
-      background: #f5f7fa;
-      color: #0f172a;
+    :root {
+      --bg: #0b1020;
+      --panel: #0f172a;
+      --panel-2: #020617;
+      --border: #1e293b;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-2: #0ea5e9;
+      --danger: #ef4444;
+      --success: #22c55e;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
 
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      background: radial-gradient(circle at top, #020617, #000);
+      color: var(--text);
+      font-family: Inter, system-ui, sans-serif;
+    }
+
+    /* ---------------- Sidebar ---------------- */
+
     .sidebar {
-      width: 240px;
-      background: white;
-      border-right: 1px solid #e2e8f0;
-      padding: 14px;
+      width: 260px;
+      background: linear-gradient(180deg, #020617, #020617);
+      border-right: 1px solid var(--border);
+      padding: 16px;
       overflow-y: auto;
     }
 
+    .sidebar h3 {
+      margin: 0 0 12px;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .category-label {
+      margin: 14px 0 6px;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
     .tool-item {
-      padding: 8px;
+      padding: 10px 12px;
       cursor: pointer;
-      border-radius: 6px;
+      border-radius: 8px;
       margin-bottom: 6px;
+      background: transparent;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
     }
+
     .tool-item:hover {
-      background: #e0f2fe;
+      background: rgba(56, 189, 248, 0.08);
+      border-color: rgba(56, 189, 248, 0.3);
     }
-    .active {
-      background: #bae6fd;
+
+    .tool-item.active {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: var(--accent);
+      color: var(--accent);
     }
+
+    /* ---------------- Main ---------------- */
 
     .main {
       flex: 1;
       display: flex;
       flex-direction: column;
-      padding: 16px;
+      padding: 18px;
+      gap: 14px;
+    }
+
+    #toolName {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    /* ---------------- Inputs ---------------- */
+
+    .inputs {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      display: grid;
       gap: 12px;
     }
 
-    .inputs label {
+    .tool-desc {
       font-size: 13px;
-      color: #475569;
+      color: var(--muted);
+      margin-bottom: 6px;
     }
 
-    .inputs input {
+    .input-row label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      display: block;
+    }
+
+    .input-row input,
+    .input-row select {
       width: 100%;
-      padding: 8px;
-      margin-bottom: 10px;
-      border-radius: 6px;
-      border: 1px solid #cbd5e1;
+      padding: 9px 10px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      outline: none;
     }
 
-    #out {
-      background: #0f172a;
-      color: #f1f5f9;
-      padding: 12px;
-      border-radius: 8px;
-      height: 380px;
-      overflow-y: auto;
-      white-space: pre-wrap;
+    .input-row input:focus,
+    .input-row select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.3);
+    }
+
+    /* ---------------- Actions ---------------- */
+
+    .actions {
+      display: flex;
+      gap: 10px;
     }
 
     button {
-      padding: 8px 12px;
-      background: #0284c7;
-      color: white;
-      border-radius: 6px;
+      padding: 10px 14px;
+      background: linear-gradient(180deg, var(--accent), var(--accent-2));
+      color: #020617;
+      border-radius: 10px;
       border: none;
       cursor: pointer;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
     }
 
     button:hover {
-      background: #0369a1;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(56, 189, 248, 0.3);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    /* ---------------- Output ---------------- */
+
+    #out {
+      flex: 1;
+      background: #020617;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      font-family: var(--mono);
+      font-size: 13px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      color: #e2e8f0;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+    }
+
+    #out::selection {
+      background: rgba(56, 189, 248, 0.4);
     }
   </style>
 </head>
 
 <body>
 
+  <!-- ================= SIDEBAR ================= -->
+
   <div class="sidebar">
+    <button id="netInfoBtn" style="
+      width:100%;
+      margin-bottom:14px;
+      padding:10px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:#020617;
+      color:var(--accent);
+      cursor:pointer;
+      font-weight:600;
+    ">
+      🌐 Network Info
+    </button>
+
     <h3>Tools</h3>
     <div id="toolsList">Loading…</div>
   </div>
 
+  <!-- ================= MAIN ================= -->
+
   <div class="main">
     <h2 id="toolName">Select a tool</h2>
-    <div class="inputs" id="inputs"></div>
+
+    <div class="inputs" id="inputs">
+      <!-- Dynamic inputs -->
+    </div>
 
     <div class="actions">
       <button id="runBtn">Run</button>
       <button id="runStreamBtn">Run Streamed</button>
     </div>
 
-    <h3>Output</h3>
     <div id="out">—</div>
   </div>
+
+  <!-- ================= NETWORK INFO PANEL ================= -->
+
+  <div id="netPanel" style="
+    display:none;
+    position:fixed;
+    left:260px;
+    top:20px;
+    right:20px;
+    bottom:20px;
+    padding:16px;
+    overflow-y:auto;
+    background:#020617;
+    border:1px solid var(--border);
+    border-radius:16px;
+    z-index:999;
+  ">
+  </div>
+
+  <!-- ================= SCRIPTS ================= -->
 
   <script src="renderer.js"></script>
 </body>

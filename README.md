@@ -1,175 +1,222 @@
-# 🛡️ Pentest Desktop
+# 🛡️ Pentest-Desktop
 
-**A sandboxed, cross-platform pentesting desktop application**
+**A secure, sandboxed, cross-platform pentesting desktop console**
 
-Pentest Desktop is a security-focused desktop application that lets users run popular pentesting tools (like **Nmap**, **Gobuster**, etc.) in **isolated environments**, without installing tools directly on their system or dealing with VMs, dependency conflicts, or OS limitations.
+Pentest-Desktop is a **security-first desktop application** that lets you run common pentesting tools like **Nmap** in **isolated environments**, without virtual machines, without package conflicts, and without unsafe sudo usage.
 
-The goal is simple:
-**one install → all tools → secure by default → live streaming output**.
+**One install → one UI → isolated tools → live output.**
 
-## ✨ Why Pentest Desktop?
+---
 
-Traditional pentesting setups are painful:
+## ✨ Why Pentest-Desktop?
+
+Traditional pentesting setups are painful and fragile:
 
 * Virtual machines are heavy and slow
-* Tools are OS-specific and conflict with system packages
-* Installing & maintaining toolchains is messy
-* Running tools with sudo is risky
+* Toolchains conflict with system packages
+* Many tools are Linux-only
+* `sudo` everywhere is dangerous
+* Switching between terminals kills focus
 
-Pentest Desktop solves this by:
+Pentest-Desktop fixes this by:
 
-* Shipping tools **inside the app**
-* Running them in **OS-level sandboxes**
-* Granting **minimal privileges only when required**
-* Streaming output live back to the UI
+* Running tools in **OS-level sandboxes**
+* Keeping the **UI completely unprivileged**
+* Granting **only the exact capabilities required**
+* Streaming output live into a modern UI
+* Working toward **cross-platform parity**
+
+---
 
 ## 🧠 Architecture Overview
 
-Pentest Desktop uses a **multi-layer, security-first architecture**.
-<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/e3e6ad85-2d36-4add-bceb-b577ead01247" />
-
-
-### High-level flow
+Pentest-Desktop uses a **layered, least-privilege architecture**.
+![alt text](image.png)
 
 ```
 Electron UI
-   ↓ IPC
-FastAPI Orchestrator
+   ↓ IPC (safe bridge)
+FastAPI Orchestrator (Python)
    ↓ HTTP + SSE
-Go Sandbox
+Go Sandbox Runtime
    ↓ exec
-Firejail (Isolation)
+Firejail (Linux isolation)
    ↓
 Pentesting Tool (Nmap, Gobuster, etc.)
    ↑
-Live output streamed back to UI
+Live stdout/stderr streamed back to UI
 ```
 
-### Layer responsibilities
+### Layer Responsibilities
 
-* **Electron UI**
+#### 🖥️ Electron UI
 
-  * User selects tool and scan type
-  * Displays real-time output
-  * No direct system access
+* Tool selection & presets
+* Network interface visibility
+* Live streaming output
+* **No Node.js access**
+* **No command execution**
 
-* **FastAPI Orchestrator (Python)**
+#### 🐍 FastAPI Orchestrator
 
-  * Validates requests
-  * Maps UI actions to tool commands
-  * Acts as an SSE proxy
+* Validates tool requests
+* Maps UI presets → safe commands
+* Selects sandbox profiles
+* Acts as SSE proxy
 
-* **Go Sandbox**
+#### ⚙️ Go Sandbox
 
-  * Executes tools
-  * Streams stdout/stderr in real time
-  * Handles process lifecycle safely
+* Spawns and supervises tools
+* Streams stdout/stderr line-by-line
+* Handles process lifecycle safely
 
-* **Firejail (Linux isolation)**
+#### 🔒 Firejail (Linux)
 
-  * Enforces filesystem, network, and capability restrictions
-  * Grants capabilities like `net_raw` only when required
+* Filesystem isolation
+* Network access control
+* Capability-based privileges (`net_raw`, etc.)
+* No full root shells
 
-* **Pentesting Tools**
+---
 
-  * Run fully isolated
-  * Can access the user’s network when explicitly allowed
+## 🌐 Network Intelligence Panel
 
+Pentest-Desktop includes a **built-in network awareness panel**.
 
-## 🔍 Nmap Integration (Current Focus)
+![alt text](image-1.png)
 
-Nmap is treated as a **first-class tool**, not a raw command runner.
+Features:
 
-### Key design decisions
+* Lists all network interfaces
+* Shows IPv4 / IPv6 addresses
+* Identifies loopback vs real interfaces
+* Cross-platform via `os.networkInterfaces()`
+* No shell commands, no parsing hacks
 
+This allows users to:
+
+* Instantly identify local subnets
+* Choose correct scan targets
+* Avoid accidental scans on the wrong interface
+
+---
+
+## 🔍 Nmap Integration (First-Class)
+
+Nmap is not treated as a raw command runner.
+
+### Design Principles
+
+* ❌ No free-text flags
 * ❌ No `sudo` in the UI
-* ✅ Capability-based privileges via Firejail
-* ✅ Different sandbox profiles for different scan types
-* ✅ Live streaming output via SSE
+* ✅ Preset-driven scans
+* ✅ Capability-based privileges
+* ✅ Live output streaming
 
 ### Example
 
-Instead of users typing:
+Instead of running:
 
 ```bash
 sudo nmap -sS -sV 192.168.1.0/24
 ```
 
-They simply:
+Users simply:
 
-* Select **Stealth Scan**
-* Enter the target
-* Click **Run**
+1. Select **Nmap**
+2. Choose a scan type (Quick, TCP, Service, Ping)
+3. Enter a target
+4. Click **Run**
 
-The app automatically:
+Pentest-Desktop automatically:
 
-* Chooses the correct flags
-* Selects the privileged sandbox profile
-* Streams output live
+* Chooses safe flags
+* Selects the correct sandbox profile
+* Streams output in real time
+
+![alt text](image-2.png)
+---
 
 ## 📺 Live Streaming Output
 
-All tools stream output **in real time** back to the UI.
-<img width="808" height="542" alt="image" src="https://github.com/user-attachments/assets/6ec3136d-165a-49f0-992f-e7ca93ca8e6e" />
+All tools stream output **live**, end-to-end.
 
+* Line-buffered execution
+* stdout and stderr handled separately
+* Server-Sent Events (SSE)
+* No polling
+* No fake progress bars
 
-This is achieved using:
+The UI shows **exactly what the tool prints**, as it happens.
 
-* `stdbuf` for line-buffered output
-* Parallel stdout/stderr streaming
-* Server-Sent Events (SSE) end-to-end
-
-No polling. No blocking. No fake progress bars.
-
+---
 
 ## 🔐 Security Model
 
-Pentest Desktop follows **least-privilege by design**.
+Pentest-Desktop follows **least privilege by default**.
 
-* Tools run isolated from the host filesystem
-* Network access is explicit and controlled
-* Raw sockets are enabled **only when required**
-* Renderer process never executes commands
-* One-way trust: UI → Orchestrator → Sandbox
+* Renderer process cannot execute commands
+* Orchestrator only accepts known tools
+* Sandbox enforces filesystem isolation
+* Network access is explicit
+* Raw sockets only when required
+* One-way trust flow:
 
-A compromised UI does **not** mean system compromise.
+```
+UI → Orchestrator → Sandbox → Tool
+```
 
-## 🧩 Tool Support (Planned & Ongoing)
+A compromised UI **does not** equal system compromise.
 
-* ✅ Nmap (in progress, first-class)
+---
+
+## 🧩 Tool Support
+
+### Current
+
+* ✅ Nmap (preset-based, sandboxed)
+* ✅ Network interface discovery
+
+### In Progress
+
 * 🔜 Gobuster
-* 🔜 Wireless tools
+* 🔜 Wireless tooling (monitor mode aware)
 * 🔜 WASM-based tools
-* 🔜 Tool profiles & presets
+* 🔜 Tool profiles & capability tiers
 
 ---
 
 ## 🚧 Project Status
 
-This project is **actively under development**.
+Pentest-Desktop is **actively developed**.
 
 Current focus:
 
-* Perfecting Nmap execution
-* Improving scan presets & UX
-* Strengthening sandbox profiles
-* Preparing for cross-platform support
+* Hardening sandbox profiles
+* Improving Nmap UX
+* Expanding tool abstractions
+* Preparing cross-platform backends (macOS / Windows)
 
+---
 
-## 📌 Roadmap (Short-term)
+## 🛣️ Short-Term Roadmap
 
-* Nmap scan presets (Quick / Service / Stealth / OS)
-* UI-based flag selection (no manual flags)
-* Tool-specific Firejail profiles
-* Better error handling & reporting
-* Documentation & threat model
+* Interface → auto-fill scan target
+* Tool-specific permission warnings
+* Saved scan presets
+* Tool result export
+* App packaging (AppImage / dmg / exe)
+
+---
 
 ## 🤝 Contributing
 
-This project is in early stages.
-Feedback, ideas, and discussions are welcome.
+This project is early-stage but stable.
+Ideas, reviews, and security discussions are welcome.
 
+---
 
 ## 📜 License
 
-TBD (will be added as the project stabilizes)
+TBD (will be added before first public release)
+

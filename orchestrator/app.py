@@ -8,12 +8,16 @@ import os
 
 app = FastAPI()
 
+# -------------------- CORS --------------------
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# -------------------- Load legacy tools.json (UI listing) --------------------
 
 def load_tools():
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -30,63 +34,118 @@ def find_tool(tool_id: str):
                 return t
     return None
 
-@app.get("/stream")
-async def stream(tool: str, target: str):
-    tool_info = find_tool(tool)
-    if not tool_info:
-        raise HTTPException(400, "Unknown tool")
+# -------------------- Load new tool definition (tools/*.json) --------------------
 
-    if tool_info["type"] == "wasm":
-        go_url = "http://127.0.0.1:9000/run-wasm"
-        payload = {"module": tool_info["module"], "target": target}
-    elif tool_info["type"] == "system":
+def load_tool_definition(tool_id: str):
+    """
+    Loads tool-specific definition like tools/nmap.json
+    """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    tool_path = os.path.join(base_dir, "..", "tools", f"{tool_id}.json")
+
+    if not os.path.exists(tool_path):
+        return None
+
+    with open(tool_path) as f:
+        return json.load(f)
+
+# -------------------- Stream Endpoint --------------------
+
+@app.get("/stream")
+async def stream(tool: str, target: str = "", scan: str = ""):
+    """
+    Examples:
+      /stream?tool=nmap&target=127.0.0.1&scan=service
+      /stream?tool=gobuster&target=https://example.com
+    """
+
+    # 🔥 NEW FLOW: tool-specific abstraction (Nmap)
+    tool_def = load_tool_definition(tool)
+
+    if tool_def:
+        if scan not in tool_def["scans"]:
+            raise HTTPException(status_code=400, detail="Invalid scan type")
+
+        scan_def = tool_def["scans"][scan]
+
+        payload = {
+            "tool": tool_def["id"],
+            "binary": tool_def["binary"],
+            "args": scan_def["args"],
+            "target": target,
+            "profile": tool_def["profile"],  # ✅ single safe profile
+        }
+
         go_url = "http://127.0.0.1:9000/run-system"
-        cmd = tool_info["cmd"].replace("{TARGET}", target)
-        payload = {"cmd": cmd}
+
     else:
-        raise HTTPException(400, "Unsupported tool type")
+        # 🧓 LEGACY FLOW (tools.json)
+        tool_info = find_tool(tool)
+        if not tool_info:
+            raise HTTPException(status_code=400, detail="Unknown tool")
+
+        if tool_info["type"] == "wasm":
+            go_url = "http://127.0.0.1:9000/run-wasm"
+            payload = {
+                "module": tool_info["module"],
+                "target": target,
+            }
+
+        elif tool_info["type"] == "system":
+            go_url = "http://127.0.0.1:9000/run-system"
+            cmd = tool_info["cmd"].replace("{TARGET}", target)
+            payload = {
+                "cmd": cmd
+            }
+
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported tool type")
+
+    # -------------------- Stream to Go Sandbox --------------------
 
     async def stream_gen():
-        # Use a new client for every request to ensure clean state
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=None) as client:
             try:
-                # 1. Prepare Data Manually
-                json_str = json.dumps(payload)
-                json_bytes = json_str.encode("utf-8")
-                
-                print(f"🐍 PYTHON DEBUG: Sending {len(json_bytes)} bytes to Go: {json_str}")
+                body = json.dumps(payload).encode("utf-8")
 
-                # 2. Build Request Explicitly (Bypassing client.stream helper)
+                print(f"🐍 PYTHON → GO: {payload}")
+
                 request = client.build_request(
                     "POST",
                     go_url,
-                    content=json_bytes,
+                    content=body,
                     headers={
                         "Content-Type": "application/json",
-                        "Content-Length": str(len(json_bytes)) # Force Content-Length
+                        "Content-Length": str(len(body)),
                     }
                 )
 
-                # 3. Send and Stream Response
                 response = await client.send(request, stream=True)
 
                 async for chunk in response.aiter_text():
                     if chunk.strip():
                         yield chunk
-                
-                # Close the response stream
+
                 await response.aclose()
                 yield "data: DONE\n\n"
 
             except Exception as e:
-                print(f"🐍 PYTHON ERROR: {e}")
+                print("🐍 ERROR:", e)
                 yield f"data: ERROR: {str(e)}\n\n"
 
     return StreamingResponse(stream_gen(), media_type="text/event-stream")
 
+# -------------------- Tools List --------------------
+
 @app.get("/tools")
 def get_tools():
+    """
+    Used by Electron sidebar.
+    Still returns tools.json for grouping.
+    """
     return TOOLS
+
+# -------------------- Run --------------------
 
 if __name__ == "__main__":
     print("🚀 Python orchestrator starting on http://127.0.0.1:8000")

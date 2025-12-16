@@ -5,12 +5,19 @@ let flatTools = {};
 let currentTool = null;
 let currentStream = null;
 
+/* -------------------- DOM -------------------- */
+
 const toolsListEl = document.getElementById("toolsList");
 const toolNameEl = document.getElementById("toolName");
 const inputsEl = document.getElementById("inputs");
 const outEl = document.getElementById("out");
 const runBtn = document.getElementById("runBtn");
 const runStreamBtn = document.getElementById("runStreamBtn");
+
+const netBtn = document.getElementById("netInfoBtn");
+const netPanel = document.getElementById("netPanel");
+
+/* -------------------- Helpers -------------------- */
 
 function log(msg) {
   outEl.textContent += msg + "\n";
@@ -43,7 +50,10 @@ async function loadTools() {
       item.textContent = t.name;
 
       item.onclick = () => {
-        document.querySelectorAll(".tool-item").forEach(x => x.classList.remove("active"));
+        document
+          .querySelectorAll(".tool-item")
+          .forEach(x => x.classList.remove("active"));
+
         item.classList.add("active");
         selectTool(t);
       };
@@ -53,16 +63,14 @@ async function loadTools() {
   });
 }
 
-/* ------------------- Parse Command Placeholders ------------------- */
+/* ------------------- Placeholder Parsing (legacy) ------------------- */
 
 function parsePlaceholders(str) {
   const out = [];
   const re = /\{([A-Z0-9_]+)\}/g;
-
   let m;
-  while ((m = re.exec(str)) !== null) out.push(m[1]);
 
-  // Always allow TARGET as default
+  while ((m = re.exec(str)) !== null) out.push(m[1]);
   if (!out.includes("TARGET")) out.push("TARGET");
 
   return out;
@@ -72,17 +80,73 @@ function parsePlaceholders(str) {
 
 function selectTool(tool) {
   currentTool = tool;
-
-  toolNameEl.textContent = `${tool.name} (${tool.id})`;
   inputsEl.innerHTML = "";
+  toolNameEl.textContent = `${tool.name} (${tool.id})`;
 
-  // Tool description
   if (tool.description) {
     const desc = document.createElement("p");
     desc.className = "tool-desc";
     desc.textContent = tool.description;
     inputsEl.appendChild(desc);
   }
+
+  /* ========= NMAP (PRESET UI) ========= */
+
+  if (tool.id === "nmap") {
+    // Target
+    const targetDiv = document.createElement("div");
+    targetDiv.className = "input-row";
+
+    const targetLabel = document.createElement("label");
+    targetLabel.textContent = "Target";
+
+    const targetInput = document.createElement("input");
+    targetInput.dataset.key = "target";
+    targetInput.value = "127.0.0.1";
+
+    targetDiv.appendChild(targetLabel);
+    targetDiv.appendChild(targetInput);
+    inputsEl.appendChild(targetDiv);
+
+    // Scan type
+    const scanDiv = document.createElement("div");
+    scanDiv.className = "input-row";
+
+    const scanLabel = document.createElement("label");
+    scanLabel.textContent = "Scan Type";
+
+    const scanSelect = document.createElement("select");
+    scanSelect.dataset.key = "scan";
+
+    const scans = [
+      ["quick", "Quick Scan"],
+      ["service", "Service Scan"],
+      ["tcp", "TCP Connect Scan"],
+      ["ping", "Ping Sweep"],
+    ];
+
+    scans.forEach(([value, label]) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      scanSelect.appendChild(opt);
+    });
+
+    scanDiv.appendChild(scanLabel);
+    scanDiv.appendChild(scanSelect);
+    inputsEl.appendChild(scanDiv);
+
+    const note = document.createElement("p");
+    note.style.fontSize = "12px";
+    note.style.color = "#94a3b8";
+    note.textContent =
+      "🔒 Stealth (-sS) and OS detection are disabled in sandbox for security reasons.";
+    inputsEl.appendChild(note);
+
+    return;
+  }
+
+  /* ========= FALLBACK: LEGACY TOOLS ========= */
 
   let placeholders = [];
 
@@ -97,7 +161,7 @@ function selectTool(tool) {
     label.textContent = ph;
 
     const input = document.createElement("input");
-    input.dataset.key = ph;
+    input.dataset.key = ph.toLowerCase();
     input.value = ph === "TARGET" ? "127.0.0.1" : "";
 
     div.appendChild(label);
@@ -106,10 +170,12 @@ function selectTool(tool) {
   });
 }
 
+/* ------------------- Collect Params ------------------- */
+
 function collectParams() {
   const p = {};
-  inputsEl.querySelectorAll("input").forEach(i => {
-    p[i.dataset.key.toLowerCase()] = i.value;
+  inputsEl.querySelectorAll("input, select").forEach(el => {
+    p[el.dataset.key] = el.value;
   });
   return p;
 }
@@ -141,7 +207,9 @@ runStreamBtn.onclick = () => {
   log("[Stream opened]");
 
   if (currentStream) {
-    try { currentStream.close(); } catch {}
+    try {
+      currentStream.close();
+    } catch {}
   }
 
   const params = collectParams();
@@ -162,11 +230,80 @@ runStreamBtn.onclick = () => {
     }
   };
 
-  evt.onerror = err => {
+  evt.onerror = () => {
     log("[Connection error]");
     evt.close();
   };
 };
 
-/* -------------------- Initial Load -------------------- */
+/* ------------------- Network Info (CROSS-PLATFORM) ------------------- */
+
+if (netBtn && netPanel) {
+  netBtn.onclick = async () => {
+    if (netPanel.style.display === "block") {
+      netPanel.style.display = "none";
+      return;
+    }
+
+    netPanel.style.display = "block";
+    netPanel.innerHTML = "<h2>🌐 Network Interfaces</h2><p>Loading…</p>";
+
+    try {
+      const data = await window.api.getNetworkInfo(); // JSON
+      netPanel.innerHTML = renderNetworkInfo(data);
+    } catch (e) {
+      netPanel.innerHTML = `<p style="color:red">Error: ${e}</p>`;
+    }
+  };
+}
+
+function renderNetworkInfo(data) {
+  let html = `<h2 style="margin-bottom:12px">🌐 Network Interfaces</h2>`;
+
+  data.forEach(iface => {
+    html += `
+      <div style="
+        border:1px solid #1e293b;
+        border-radius:14px;
+        padding:14px;
+        margin-bottom:14px;
+        background:#020617;
+      ">
+        <div style="font-size:15px;font-weight:600;color:#38bdf8">
+          ${iface.name} ${iface.internal ? "(loopback)" : ""}
+        </div>
+    `;
+
+    if (iface.mac) {
+      html += `<div style="color:#94a3b8">MAC: ${iface.mac}</div>`;
+    }
+
+    iface.ipv4.forEach(ip => {
+      html += `
+        <div style="margin-top:8px;color:#22d3ee;font-family:monospace">
+          IPv4: ${ip.address} (${ip.cidr})
+        </div>
+      `;
+    });
+
+    iface.ipv6.forEach(ip => {
+      html += `
+        <div style="margin-top:4px;color:#a78bfa;font-family:monospace">
+          IPv6: ${ip.address}
+        </div>
+      `;
+    });
+
+    if (iface.ipv4.length === 0 && iface.ipv6.length === 0) {
+      html += `<div style="color:#64748b;margin-top:6px">No IP assigned</div>`;
+    }
+
+    html += `</div>`;
+  });
+
+  return html;
+}
+
+/* -------------------- Init -------------------- */
+
 window.addEventListener("DOMContentLoaded", loadTools);
