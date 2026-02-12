@@ -118,15 +118,37 @@ def parse_john_show_output(show_output: str) -> str:
     if not show_output:
         return "No result returned by john --show"
 
+    def is_noise(line: str) -> bool:
+        l = line.strip()
+        if not l:
+            return True
+        if l.startswith("ERR:"):
+            return True
+        lower = l.lower()
+        if "password hash" in lower or "password hashes" in lower:
+            return True
+        if lower.startswith("using default input encoding"):
+            return True
+        if "ucx  warn" in l or "opal_ifinit" in l or "pmix_ifinit" in l:
+            return True
+        if l.startswith("[") and "warn" in lower:
+            return True
+        return False
+
+    # Prefer actual cracked lines (typically contain ':')
     for line in show_output.splitlines():
-        line = line.strip()
-        if not line:
+        l = line.strip()
+        if is_noise(l):
             continue
-        if "password hash" in line.lower() or "password hashes" in line.lower():
+        if ":" in l:
+            return l
+
+    # Fallback: first non-noise line
+    for line in show_output.splitlines():
+        l = line.strip()
+        if is_noise(l):
             continue
-        if line.startswith("ERR:"):
-            continue
-        return line
+        return l
 
     lowered = show_output.lower()
     if "0 password hashes cracked" in lowered:
@@ -264,19 +286,25 @@ async def crack_crypto(request: Request):
         )
 
     temp_path = ""
+    pot_path = ""
     try:
         with tempfile.NamedTemporaryFile(mode="w", delete=False, dir="/tmp", prefix="rootless-hash-") as tf:
             temp_path = tf.name
             tf.write(input_value.strip() + "\n")
 
+        pot_fd, pot_path = tempfile.mkstemp(prefix="rootless-john-", suffix=".pot", dir="/tmp")
+        os.close(pot_fd)
+
         run_cmd = [
+            "--no-log",
             f"--format={john_format}",
             f"--wordlist={ROCKYOU_WORDLIST}",
+            f"--pot={pot_path}",
             temp_path,
         ]
         run_output, run_exit = await run_john_via_sandbox(run_cmd)
 
-        show_cmd = ["--show", temp_path]
+        show_cmd = ["--no-log", f"--pot={pot_path}", "--show", temp_path]
         show_output, show_exit = await run_john_via_sandbox(show_cmd)
 
         if run_exit != 0 and show_exit != 0:
@@ -295,6 +323,11 @@ async def crack_crypto(request: Request):
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
+            except OSError:
+                pass
+        if pot_path and os.path.exists(pot_path):
+            try:
+                os.remove(pot_path)
             except OSError:
                 pass
 

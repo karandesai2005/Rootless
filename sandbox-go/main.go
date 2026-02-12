@@ -160,8 +160,23 @@ func validateJohnArgs(args []string) ([]string, error) {
 			continue
 		}
 
+		if arg == "--no-log" || arg == "--log-stderr" {
+			clean = append(clean, arg)
+			continue
+		}
+
 		if strings.HasPrefix(arg, "--format=") {
 			clean = append(clean, arg)
+			continue
+		}
+
+		if strings.HasPrefix(arg, "--pot=") {
+			p := strings.TrimPrefix(arg, "--pot=")
+			p = filepath.Clean(p)
+			if !strings.HasPrefix(p, "/tmp/") {
+				return nil, fmt.Errorf("pot file must be under /tmp")
+			}
+			clean = append(clean, "--pot="+p)
 			continue
 		}
 
