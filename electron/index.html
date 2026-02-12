@@ -121,7 +121,8 @@
     }
 
     .input-row input,
-    .input-row select {
+    .input-row select,
+    .input-row textarea {
       width: 100%;
       padding: 9px 10px;
       background: var(--panel-2);
@@ -134,9 +135,16 @@
     }
 
     .input-row input:focus,
-    .input-row select:focus {
+    .input-row select:focus,
+    .input-row textarea:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.3);
+    }
+
+    .input-row textarea {
+      min-height: 180px;
+      resize: vertical;
+      line-height: 1.45;
     }
 
     /* ---------------- Actions ---------------- */
@@ -209,6 +217,7 @@
     </button>
 
     <h3>Tools</h3>
+    <div id="customTools"></div>
     <div id="toolsList">Loading…</div>
   </div>
 
