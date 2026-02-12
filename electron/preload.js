@@ -7,6 +7,40 @@ const { contextBridge, ipcRenderer } = require("electron");
   - Explicit APIs only
 */
 
+const API_BASES = [
+  "http://127.0.0.1:8000",
+  "http://localhost:8000",
+];
+
+async function tryPost(path, body) {
+  let lastError = "Unknown error";
+
+  for (const base of API_BASES) {
+    try {
+      const res = await fetch(`${base}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        lastError = data?.details || `Status ${res.status}`;
+        continue;
+      }
+
+      return data;
+    } catch (err) {
+      lastError = String(err);
+    }
+  }
+
+  throw new Error(`Backend unreachable. Last error: ${lastError}`);
+}
+
 contextBridge.exposeInMainWorld("api", {
   /* -------- Tool APIs -------- */
 
@@ -33,41 +67,14 @@ contextBridge.exposeInMainWorld("api", {
     }).toString()}`;
   },
 
+  /* -------- Crypto APIs -------- */
+
   detectCrypto: async input => {
-    const endpoints = [
-      "http://localhost:5000/crypto/detect",
-      "http://127.0.0.1:5000/crypto/detect",
-      "http://localhost:5001/crypto/detect",
-      "http://127.0.0.1:5001/crypto/detect",
-    ];
+    return await tryPost("/crypto/detect", { input });
+  },
 
-    let lastError = "Unknown error";
-
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ input }),
-        });
-
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          lastError = body?.details || `Request failed with status ${res.status}`;
-          continue;
-        }
-
-        return body;
-      } catch (err) {
-        lastError = String(err);
-      }
-    }
-
-    throw new Error(
-      `Crypto API unreachable on localhost ports 5000/5001. Last error: ${lastError}`
-    );
+  crackCrypto: async input => {
+    return await tryPost("/crypto/crack", { input });
   },
 
   /* -------- Network Info API -------- */

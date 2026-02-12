@@ -24,8 +24,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# -------------------- Load legacy tools.json (UI listing) --------------------
+# -------------------- Load legacy tools.json --------------------
 
 def load_tools():
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -33,9 +32,7 @@ def load_tools():
     with open(path) as f:
         return json.load(f)
 
-
 TOOLS = load_tools()
-
 
 def find_tool(tool_id: str):
     for category in TOOLS.values():
@@ -44,22 +41,13 @@ def find_tool(tool_id: str):
                 return t
     return None
 
-
-# -------------------- Load new tool definition (tools/*.json) --------------------
-
 def load_tool_definition(tool_id: str):
-    """
-    Loads tool-specific definition like tools/nmap.json
-    """
     base_dir = os.path.dirname(os.path.abspath(__file__))
     tool_path = os.path.join(base_dir, "..", "tools", f"{tool_id}.json")
-
     if not os.path.exists(tool_path):
         return None
-
     with open(tool_path) as f:
         return json.load(f)
-
 
 # -------------------- Hash / John Helpers --------------------
 
@@ -76,11 +64,9 @@ def map_detected_to_john_format(detected_type: str) -> Optional[str]:
     }
     return mapping.get(detected_type)
 
-
 def parse_sse_response(text: str) -> Tuple[str, int]:
     lines = []
     exit_code = 0
-
     for raw in text.splitlines():
         if not raw.startswith("data:"):
             continue
@@ -94,13 +80,10 @@ def parse_sse_response(text: str) -> Tuple[str, int]:
                 exit_code = 1
             continue
         lines.append(value)
-
     return "\n".join(lines).strip(), exit_code
-
 
 async def run_john_via_sandbox(cmd: list[str]) -> Tuple[str, int]:
     payload = {"cmd": cmd}
-
     async with httpx.AsyncClient(timeout=180) as client:
         response = await client.post(f"{GO_SANDBOX_URL}/run-john", json=payload)
 
@@ -113,61 +96,41 @@ async def run_john_via_sandbox(cmd: list[str]) -> Tuple[str, int]:
     output, exit_code = parse_sse_response(response.text)
     return output, exit_code
 
-
 def parse_john_show_output(show_output: str) -> str:
     if not show_output:
-        return "No result returned by john --show"
+        return "No password cracked"
 
-    def is_noise(line: str) -> bool:
-        l = line.strip()
-        if not l:
-            return True
-        if l.startswith("ERR:"):
-            return True
-        lower = l.lower()
-        if "password hash" in lower or "password hashes" in lower:
-            return True
-        if lower.startswith("using default input encoding"):
-            return True
-        if "ucx  warn" in l or "opal_ifinit" in l or "pmix_ifinit" in l:
-            return True
-        if l.startswith("[") and "warn" in lower:
-            return True
-        return False
-
-    # Prefer actual cracked lines (typically contain ':')
     for line in show_output.splitlines():
         l = line.strip()
-        if is_noise(l):
+        if not l:
             continue
+
+        lower = l.lower()
+
+        # Ignore sandbox noise
+        if l.startswith("ERR:"):
+            continue
+        if "opal_ifinit" in lower or "ucx" in lower or "pmix" in lower:
+            continue
+        if "warn" in lower:
+            continue
+        if "using default input encoding" in lower:
+            continue
+        if "password hash" in lower:
+            continue
+
         if ":" in l:
             return l
 
-    # Fallback: first non-noise line
-    for line in show_output.splitlines():
-        l = line.strip()
-        if is_noise(l):
-            continue
-        return l
-
-    lowered = show_output.lower()
-    if "0 password hashes cracked" in lowered:
+    if "0 password hashes cracked" in show_output.lower():
         return "No password cracked"
 
-    return show_output
-
+    return "No password cracked"
 
 # -------------------- Stream Endpoint --------------------
 
 @app.get("/stream")
 async def stream(tool: str, target: str = "", scan: str = ""):
-    """
-    Examples:
-      /stream?tool=nmap&target=127.0.0.1&scan=service
-      /stream?tool=gobuster&target=https://example.com
-    """
-
-    # New flow: tool-specific abstraction
     tool_def = load_tool_definition(tool)
 
     if tool_def:
@@ -175,7 +138,6 @@ async def stream(tool: str, target: str = "", scan: str = ""):
             raise HTTPException(status_code=400, detail="Invalid scan type")
 
         scan_def = tool_def["scans"][scan]
-
         payload = {
             "tool": tool_def["id"],
             "binary": tool_def["binary"],
@@ -183,116 +145,84 @@ async def stream(tool: str, target: str = "", scan: str = ""):
             "target": target,
             "profile": tool_def["profile"],
         }
-
         go_url = f"{GO_SANDBOX_URL}/run-system"
-
     else:
-        # Legacy flow (tools.json)
         tool_info = find_tool(tool)
         if not tool_info:
             raise HTTPException(status_code=400, detail="Unknown tool")
 
         if tool_info["type"] == "wasm":
             go_url = f"{GO_SANDBOX_URL}/run-wasm"
-            payload = {
-                "module": tool_info["module"],
-                "target": target,
-            }
-
+            payload = {"module": tool_info["module"], "target": target}
         elif tool_info["type"] == "system":
             go_url = f"{GO_SANDBOX_URL}/run-system"
             cmd = tool_info["cmd"].replace("{TARGET}", target)
-            payload = {
-                "cmd": cmd
-            }
-
+            payload = {"cmd": cmd}
         else:
             raise HTTPException(status_code=400, detail="Unsupported tool type")
 
     async def stream_gen():
         async with httpx.AsyncClient(timeout=None) as client:
             try:
-                body = json.dumps(payload).encode("utf-8")
-
-                request_obj = client.build_request(
-                    "POST",
-                    go_url,
-                    content=body,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Content-Length": str(len(body)),
-                    }
-                )
-
-                response = await client.send(request_obj, stream=True)
-
-                async for chunk in response.aiter_text():
-                    if chunk.strip():
-                        yield chunk
-
-                await response.aclose()
+                response = await client.post(go_url, json=payload, timeout=None)
+                yield response.text
                 yield "data: DONE\n\n"
-
             except Exception as e:
                 yield f"data: ERROR: {str(e)}\n\n"
 
     return StreamingResponse(stream_gen(), media_type="text/event-stream")
 
-
-# -------------------- Tools List --------------------
+# -------------------- Tools --------------------
 
 @app.get("/tools")
 def get_tools():
     return TOOLS
 
-
 # -------------------- Crypto Detect --------------------
 
 @app.post("/crypto/detect")
 async def detect_crypto(request: Request):
-    try:
-        payload = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
+    payload = await request.json()
+    input_value = payload.get("input")
 
-    input_value = payload.get("input") if isinstance(payload, dict) else None
     if not isinstance(input_value, str) or not input_value.strip():
-        raise HTTPException(status_code=400, detail="field 'input' must be a non-empty string")
+        raise HTTPException(status_code=400, detail="field 'input' must be non-empty string")
 
     detected_type, details = detect_hash(input_value)
-    return {"input": input_value, "type": detected_type, "details": details}
+    john_format = map_detected_to_john_format(detected_type)
 
+    return {
+        "input": input_value,
+        "type": detected_type,
+        "details": details,
+        "john_format": john_format,
+    }
 
-# -------------------- Crypto Crack (John) --------------------
+# -------------------- Crypto Crack --------------------
 
 @app.post("/crypto/crack")
 async def crack_crypto(request: Request):
-    try:
-        payload = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
+    payload = await request.json()
+    input_value = payload.get("input")
 
-    input_value = payload.get("input") if isinstance(payload, dict) else None
     if not isinstance(input_value, str) or not input_value.strip():
-        raise HTTPException(status_code=400, detail="field 'input' must be a non-empty string")
+        raise HTTPException(status_code=400, detail="field 'input' must be non-empty string")
 
     detected_type, _ = detect_hash(input_value)
     john_format = map_detected_to_john_format(detected_type)
 
     if not john_format:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported hash type for john cracking: {detected_type}",
-        )
+        raise HTTPException(status_code=400, detail=f"Unsupported: {detected_type}")
 
     temp_path = ""
     pot_path = ""
+
     try:
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, dir="/tmp", prefix="rootless-hash-") as tf:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, dir="/tmp") as tf:
             temp_path = tf.name
             tf.write(input_value.strip() + "\n")
 
-        pot_fd, pot_path = tempfile.mkstemp(prefix="rootless-john-", suffix=".pot", dir="/tmp")
+        pot_fd, pot_path = tempfile.mkstemp(dir="/tmp")
         os.close(pot_fd)
 
         run_cmd = [
@@ -302,35 +232,32 @@ async def crack_crypto(request: Request):
             f"--pot={pot_path}",
             temp_path,
         ]
-        run_output, run_exit = await run_john_via_sandbox(run_cmd)
+        await run_john_via_sandbox(run_cmd)
 
         show_cmd = ["--no-log", f"--pot={pot_path}", "--show", temp_path]
-        show_output, show_exit = await run_john_via_sandbox(show_cmd)
+        show_output, _ = await run_john_via_sandbox(show_cmd)
 
-        if run_exit != 0 and show_exit != 0:
-            return {
-                "detected": detected_type,
-                "result": f"john failed\n{run_output or show_output}".strip(),
-            }
+        cracked_line = parse_john_show_output(show_output)
 
-        cracked = parse_john_show_output(show_output)
+        password = None
+        cracked_flag = False
+
+        if ":" in cracked_line and cracked_line != "No password cracked":
+            password = cracked_line.split(":", 1)[1].strip()
+            cracked_flag = True
+
         return {
             "detected": detected_type,
-            "result": cracked,
+            "result": cracked_line,
+            "cracked": cracked_flag,
+            "password": password,
         }
 
     finally:
         if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+            os.remove(temp_path)
         if pot_path and os.path.exists(pot_path):
-            try:
-                os.remove(pot_path)
-            except OSError:
-                pass
-
+            os.remove(pot_path)
 
 # -------------------- Run --------------------
 
