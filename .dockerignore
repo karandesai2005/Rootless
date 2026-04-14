@@ -1,0 +1,15 @@
+.git
+.gitignore
+node_modules/
+**/node_modules/
+orchestrator/venv/
+electron/node_modules/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.log
+.DS_Store
+.idea/
+.vscode/
+main
+sandbox-go/main

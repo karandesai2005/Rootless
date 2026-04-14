@@ -1,7 +1,4 @@
-// renderer.js
-
 let tools = {};
-let flatTools = {};
 let currentTool = null;
 let currentStream = null;
 
@@ -21,7 +18,7 @@ const netPanel = document.getElementById("netPanel");
 /* -------------------- Helpers -------------------- */
 
 function log(msg) {
-  outEl.textContent += msg + "\n";
+  outEl.textContent += `${msg}\n`;
   outEl.scrollTop = outEl.scrollHeight;
 }
 
@@ -34,61 +31,257 @@ function logJson(obj) {
   outEl.scrollTop = outEl.scrollHeight;
 }
 
+function setActiveTool(item) {
+  document.querySelectorAll(".tool-item").forEach(element => {
+    element.classList.remove("active");
+  });
+  item.classList.add("active");
+}
+
+function closeCurrentStream() {
+  if (currentStream) {
+    currentStream.close();
+    currentStream = null;
+  }
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function appendInput({ key, label, type = "text", required = false, placeholder = "", value = "" }) {
+  const row = document.createElement("div");
+  row.className = "input-row";
+
+  const labelEl = document.createElement("label");
+  labelEl.textContent = label;
+
+  const input = document.createElement("input");
+  input.type = type;
+  input.dataset.key = key;
+  input.required = required;
+  input.placeholder = placeholder;
+  input.value = value;
+
+  row.appendChild(labelEl);
+  row.appendChild(input);
+  inputsEl.appendChild(row);
+}
+
+function appendSelect({ key, label, options, value = "" }) {
+  const row = document.createElement("div");
+  row.className = "input-row";
+
+  const labelEl = document.createElement("label");
+  labelEl.textContent = label;
+
+  const select = document.createElement("select");
+  select.dataset.key = key;
+
+  options.forEach(option => {
+    const optionEl = document.createElement("option");
+    optionEl.value = option.id;
+    optionEl.textContent = option.label;
+    if (option.id === value) {
+      optionEl.selected = true;
+    }
+    select.appendChild(optionEl);
+  });
+
+  row.appendChild(labelEl);
+  row.appendChild(select);
+  inputsEl.appendChild(row);
+}
+
+function readInputValues() {
+  const values = {};
+
+  inputsEl.querySelectorAll("[data-key]").forEach(element => {
+    values[element.dataset.key] = element.value.trim();
+  });
+
+  return values;
+}
+
+function validateParams(tool, values) {
+  for (const param of tool.params || []) {
+    const value = values[param.key];
+    if (param.required && !value) {
+      throw new Error(`Missing required parameter: ${param.label || param.key}`);
+    }
+  }
+}
+
+function parseSseText(text) {
+  const values = [];
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    if (!rawLine.startsWith("data:")) {
+      continue;
+    }
+
+    values.push(rawLine.slice(5).trim());
+  }
+
+  return values;
+}
+
+function renderSseValue(value) {
+  if (!value || value === "start") {
+    return false;
+  }
+
+  if (value === "DONE") {
+    return true;
+  }
+
+  if (value.startsWith("EXIT_CODE:")) {
+    log(`[Exit ${value.split(":", 2)[1].trim()}]`);
+    return false;
+  }
+
+  log(value);
+  return false;
+}
+
+async function runStandardTool(streamed) {
+  if (!currentTool) {
+    return;
+  }
+
+  closeCurrentStream();
+  clearLog();
+
+  let params;
+  try {
+    params = readInputValues();
+    validateParams(currentTool, params);
+  } catch (err) {
+    log("[Error]");
+    log(String(err.message || err));
+    return;
+  }
+
+  if (streamed) {
+    log("[Opening live stream]");
+    const streamUrl = window.api.getStreamUrl(currentTool.id, params);
+    currentStream = new EventSource(streamUrl);
+
+    currentStream.onmessage = event => {
+      const shouldClose = renderSseValue(event.data);
+      if (shouldClose) {
+        closeCurrentStream();
+      }
+    };
+
+    currentStream.onerror = () => {
+      log("[Stream closed]");
+      closeCurrentStream();
+    };
+
+    return;
+  }
+
+  log("[Running one-shot]");
+
+  try {
+    const response = await window.api.runOnce(currentTool.id, params);
+    parseSseText(response).forEach(renderSseValue);
+  } catch (err) {
+    log("[Error]");
+    log(String(err));
+  }
+}
+
+function renderNetworkInfo(interfaces) {
+  const cards = interfaces.map(iface => {
+    const ipv4 = iface.ipv4.length
+      ? iface.ipv4.map(entry => `<div>${escapeHtml(entry.address)} ${escapeHtml(entry.cidr || "")}</div>`).join("")
+      : "<div>None</div>";
+    const ipv6 = iface.ipv6.length
+      ? iface.ipv6.map(entry => `<div>${escapeHtml(entry.address)} ${escapeHtml(entry.cidr || "")}</div>`).join("")
+      : "<div>None</div>";
+
+    return `
+      <div style="padding:14px;border:1px solid #1e293b;border-radius:12px;background:#0f172a;margin-bottom:12px;">
+        <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(iface.name)}</div>
+        <div style="color:#94a3b8;margin-bottom:6px;">${iface.internal ? "Internal" : "External"}${iface.mac ? ` | ${escapeHtml(iface.mac)}` : ""}</div>
+        <div style="margin-bottom:6px;"><strong>IPv4</strong>${ipv4}</div>
+        <div><strong>IPv6</strong>${ipv6}</div>
+      </div>
+    `;
+  }).join("");
+
+  netPanel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h3 style="margin:0;">Network Interfaces</h3>
+      <button id="closeNetPanel" style="background:#0f172a;color:#38bdf8;border:1px solid #1e293b;">Close</button>
+    </div>
+    ${cards || "<div>No interfaces found.</div>"}
+  `;
+
+  netPanel.style.display = "block";
+
+  document.getElementById("closeNetPanel").onclick = () => {
+    netPanel.style.display = "none";
+  };
+}
+
 /* ---------------------- Load Tools ----------------------- */
 
 async function loadTools() {
-  tools = await window.api.listTools();
-
-  if (customToolsEl) {
-    customToolsEl.innerHTML = "";
-
-    const label = document.createElement("div");
-    label.className = "category-label";
-    label.textContent = "📂 Custom";
-    customToolsEl.appendChild(label);
-
-    const cryptoItem = document.createElement("div");
-    cryptoItem.className = "tool-item";
-    cryptoItem.textContent = "Crypto Identifier";
-    cryptoItem.onclick = () => {
-      document
-        .querySelectorAll(".tool-item")
-        .forEach(x => x.classList.remove("active"));
-      cryptoItem.classList.add("active");
-      selectTool({
-        id: "crypto-identifier",
-        name: "Crypto Identifier",
-        description: "Identify hashes, tokens, and crypto-like encodings.",
-        type: "custom",
-      });
-    };
-    customToolsEl.appendChild(cryptoItem);
+  try {
+    tools = await window.api.listTools();
+  } catch (err) {
+    toolsListEl.textContent = "Failed to load tools";
+    clearLog();
+    log("[Error]");
+    log(String(err));
+    return;
   }
 
+  customToolsEl.innerHTML = "";
+
+  const customLabel = document.createElement("div");
+  customLabel.className = "category-label";
+  customLabel.textContent = "Custom";
+  customToolsEl.appendChild(customLabel);
+
+  const cryptoItem = document.createElement("div");
+  cryptoItem.className = "tool-item";
+  cryptoItem.textContent = "Crypto Identifier";
+  cryptoItem.onclick = () => {
+    setActiveTool(cryptoItem);
+    selectTool({
+      id: "crypto-identifier",
+      name: "Crypto Identifier",
+      description: "Identify hashes, tokens, and crypto-like encodings.",
+      type: "custom",
+    });
+  };
+  customToolsEl.appendChild(cryptoItem);
+
   toolsListEl.innerHTML = "";
-  flatTools = {};
 
-  Object.keys(tools).forEach(category => {
-    const catLabel = document.createElement("div");
-    catLabel.textContent = `📂 ${category}`;
-    catLabel.className = "category-label";
-    toolsListEl.appendChild(catLabel);
+  Object.entries(tools).forEach(([category, items]) => {
+    const categoryLabel = document.createElement("div");
+    categoryLabel.textContent = category;
+    categoryLabel.className = "category-label";
+    toolsListEl.appendChild(categoryLabel);
 
-    tools[category].forEach(t => {
-      flatTools[t.id] = t;
-
+    items.forEach(tool => {
       const item = document.createElement("div");
       item.className = "tool-item";
-      item.textContent = t.name;
-
+      item.textContent = tool.name;
       item.onclick = () => {
-        document
-          .querySelectorAll(".tool-item")
-          .forEach(x => x.classList.remove("active"));
-        item.classList.add("active");
-        selectTool(t);
+        setActiveTool(item);
+        selectTool(tool);
       };
-
       toolsListEl.appendChild(item);
     });
   });
@@ -96,7 +289,70 @@ async function loadTools() {
 
 /* ------------------- Render Selected Tool ------------------- */
 
+function renderCryptoTool() {
+  appendInput({
+    key: "crypto_input",
+    label: "Input",
+    placeholder: "Paste hash/token/encoded text here...",
+  });
+
+  const textarea = inputsEl.querySelector("input[data-key='crypto_input']");
+  const textAreaReplacement = document.createElement("textarea");
+  textAreaReplacement.dataset.key = "crypto_input";
+  textAreaReplacement.placeholder = textarea.placeholder;
+  textarea.replaceWith(textAreaReplacement);
+
+  const fileDiv = document.createElement("div");
+  fileDiv.className = "input-row";
+
+  const fileLabel = document.createElement("label");
+  fileLabel.textContent = "Upload File";
+
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.dataset.key = "crypto_file";
+
+  fileDiv.appendChild(fileLabel);
+  fileDiv.appendChild(fileInput);
+  inputsEl.appendChild(fileDiv);
+
+  const crackDiv = document.createElement("div");
+  crackDiv.className = "input-row";
+
+  const crackBtn = document.createElement("button");
+  crackBtn.textContent = "Crack";
+  crackBtn.id = "cryptoCrackBtn";
+  crackBtn.onclick = async () => {
+    await runCryptoCrack();
+  };
+
+  crackDiv.appendChild(crackBtn);
+  inputsEl.appendChild(crackDiv);
+}
+
+function renderStandardTool(tool) {
+  if (tool.scans && tool.scans.length) {
+    appendSelect({
+      key: "scan",
+      label: "Scan Type",
+      options: tool.scans,
+      value: tool.default_scan || tool.scans[0].id,
+    });
+  }
+
+  (tool.params || []).forEach(param => {
+    appendInput({
+      key: param.key,
+      label: param.label || param.key,
+      type: param.type || "text",
+      required: Boolean(param.required),
+      value: param.default || "",
+    });
+  });
+}
+
 function selectTool(tool) {
+  closeCurrentStream();
   currentTool = tool;
   inputsEl.innerHTML = "";
   toolNameEl.textContent = `${tool.name} (${tool.id})`;
@@ -108,55 +364,12 @@ function selectTool(tool) {
     inputsEl.appendChild(desc);
   }
 
-  /* ========= CRYPTO IDENTIFIER ========= */
-
   if (tool.id === "crypto-identifier") {
-    const inputDiv = document.createElement("div");
-    inputDiv.className = "input-row";
-
-    const inputLabel = document.createElement("label");
-    inputLabel.textContent = "Input";
-
-    const textarea = document.createElement("textarea");
-    textarea.dataset.key = "crypto_input";
-    textarea.placeholder = "Paste hash/token/encoded text here...";
-
-    inputDiv.appendChild(inputLabel);
-    inputDiv.appendChild(textarea);
-    inputsEl.appendChild(inputDiv);
-
-    const fileDiv = document.createElement("div");
-    fileDiv.className = "input-row";
-
-    const fileLabel = document.createElement("label");
-    fileLabel.textContent = "Upload File";
-
-    const fileInput = document.createElement("input");
-    fileInput.type = "file";
-    fileInput.dataset.key = "crypto_file";
-
-    fileDiv.appendChild(fileLabel);
-    fileDiv.appendChild(fileInput);
-    inputsEl.appendChild(fileDiv);
-
-    const crackDiv = document.createElement("div");
-    crackDiv.className = "input-row";
-
-    const crackBtn = document.createElement("button");
-    crackBtn.textContent = "Crack";
-    crackBtn.id = "cryptoCrackBtn";
-
-    crackDiv.appendChild(crackBtn);
-    inputsEl.appendChild(crackDiv);
-
-    crackBtn.onclick = async () => {
-      await runCryptoCrack();
-    };
-
+    renderCryptoTool();
     return;
   }
 
-  /* fallback tools unchanged */
+  renderStandardTool(tool);
 }
 
 /* ------------------- Crypto Detect ------------------- */
@@ -180,16 +393,21 @@ async function runCryptoDetect(modeLabel) {
     return;
   }
 
-  const result = await window.api.detectCrypto(inputValue);
-  logJson(result);
-  log("[Finished]");
+  try {
+    const result = await window.api.detectCrypto(inputValue);
+    logJson(result);
+    log("[Finished]");
+  } catch (err) {
+    log("[Error]");
+    log(String(err));
+  }
 }
 
 /* ------------------- Crypto Crack ------------------- */
 
 async function runCryptoCrack() {
   clearLog();
-  log("[Starting crack process…]");
+  log("[Starting crack process]");
 
   const textInput = inputsEl.querySelector("textarea[data-key='crypto_input']");
   const fileInput = inputsEl.querySelector("input[data-key='crypto_file']");
@@ -216,7 +434,6 @@ async function runCryptoCrack() {
 
     if (!detect.john_format) {
       log("Unsupported hash type.");
-      crackBtn.disabled = false;
       return;
     }
 
@@ -226,9 +443,9 @@ async function runCryptoCrack() {
     logJson(result);
 
     if (result.cracked) {
-      log(`✔ Password: ${result.password}`);
+      log(`Password: ${result.password}`);
     } else {
-      log("✖ No match found in wordlist.");
+      log("No match found in wordlist.");
     }
 
     log("[Finished]");
@@ -240,25 +457,51 @@ async function runCryptoCrack() {
   }
 }
 
-/* ----------------------- Run Buttons ------------------------ */
+/* ----------------------- Actions ------------------------ */
 
 runBtn.onclick = async () => {
-  if (!currentTool) return;
-
-  if (currentTool.id === "crypto-identifier") {
-    await runCryptoDetect("[Running one-shot…]");
+  if (!currentTool) {
     return;
   }
+
+  if (currentTool.id === "crypto-identifier") {
+    await runCryptoDetect("[Running one-shot]");
+    return;
+  }
+
+  await runStandardTool(false);
 };
 
 runStreamBtn.onclick = async () => {
-  if (!currentTool) return;
-
-  if (currentTool.id === "crypto-identifier") {
-    await runCryptoDetect("[Running streamed…]");
+  if (!currentTool) {
     return;
   }
+
+  if (currentTool.id === "crypto-identifier") {
+    await runCryptoDetect("[Running streamed]");
+    return;
+  }
+
+  await runStandardTool(true);
 };
+
+netBtn.onclick = async () => {
+  if (netPanel.style.display === "block") {
+    netPanel.style.display = "none";
+    return;
+  }
+
+  try {
+    const interfaces = await window.api.getNetworkInfo();
+    renderNetworkInfo(interfaces);
+  } catch (err) {
+    clearLog();
+    log("[Error]");
+    log(String(err));
+  }
+};
+
+window.addEventListener("beforeunload", closeCurrentStream);
 
 /* -------------------- Init -------------------- */
 

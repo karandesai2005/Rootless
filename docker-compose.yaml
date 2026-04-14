@@ -1,0 +1,34 @@
+services:
+  sandbox:
+    build:
+      context: .
+      dockerfile: sandbox-go/Dockerfile
+    container_name: rootless-sandbox
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      - SANDBOX_DISABLE_FIREJAIL=1
+      - SANDBOX_PROFILE_DIR=/app/sandbox_profiles
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  api:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    container_name: rootless-api
+    restart: unless-stopped
+    depends_on:
+      - sandbox
+    ports:
+      - "8000:8000"
+    environment:
+      - GO_SANDBOX_URL=http://sandbox:9000
+      - TOOL_DEFINITION_DIR=/app/tools
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

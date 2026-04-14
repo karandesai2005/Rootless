@@ -5,6 +5,11 @@ const os = require("os");
 
 let mainWindow = null;
 
+function shouldOpenDevTools() {
+  const value = String(process.env.ELECTRON_OPEN_DEVTOOLS || "").toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
+}
+
 /* ---------------- Create Window ---------------- */
 
 function createWindow() {
@@ -54,8 +59,8 @@ function createWindow() {
     }
   });
 
-  // Open DevTools only in dev
-  if (!app.isPackaged) {
+  // Keep DevTools available, but don't force-open them on every dev launch.
+  if (!app.isPackaged && shouldOpenDevTools()) {
     mainWindow.webContents.openDevTools();
   }
 

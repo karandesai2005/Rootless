@@ -30,7 +30,14 @@ type ToolRequest struct {
 }
 
 type JohnRequest struct {
-	Cmd []string `json:"cmd"`
+	Cmd     []string   `json:"cmd"`
+	Files   []TempFile `json:"files"`
+	Cleanup []string   `json:"cleanup"`
+}
+
+type TempFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
 }
 
 /* ---------------- SSE HEADERS ---------------- */
@@ -83,6 +90,109 @@ func profilePath(name string) string {
 	return name
 }
 
+func envEnabled(name string) bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv(name)))
+	return value == "1" || value == "true" || value == "yes"
+}
+
+func binaryExists(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func shouldUseFirejail() bool {
+	if envEnabled("SANDBOX_DISABLE_FIREJAIL") {
+		return false
+	}
+
+	if !binaryExists("firejail") {
+		log.Printf("firejail not found; falling back to direct execution")
+		return false
+	}
+
+	return true
+}
+
+func sandboxedCommand(binary string, args []string, profile string) *exec.Cmd {
+	if shouldUseFirejail() {
+		finalArgs := []string{"--quiet"}
+		if profile != "" {
+			finalArgs = append(finalArgs, "--profile="+profile)
+		}
+		finalArgs = append(finalArgs, binary)
+		finalArgs = append(finalArgs, args...)
+		return exec.Command("firejail", finalArgs...)
+	}
+
+	return exec.Command(binary, args...)
+}
+
+func bufferedShellCommand(command string, profile string) *exec.Cmd {
+	if binaryExists("stdbuf") {
+		return sandboxedCommand("stdbuf", []string{"-oL", "-eL", "bash", "-c", command}, profile)
+	}
+
+	return sandboxedCommand("bash", []string{"-c", command}, profile)
+}
+
+func allowedJohnWordlists() []string {
+	allowed := []string{"/usr/share/wordlists/rockyou.txt"}
+
+	if custom := strings.TrimSpace(os.Getenv("ROCKYOU_WORDLIST")); custom != "" {
+		allowed = append(allowed, filepath.Clean(custom))
+	}
+
+	if custom := strings.TrimSpace(os.Getenv("JOHN_WORDLIST_PATH")); custom != "" {
+		allowed = append(allowed, filepath.Clean(custom))
+	}
+
+	if wd, err := os.Getwd(); err == nil {
+		allowed = append(allowed,
+			filepath.Join(wd, "orchestrator", "wordlist", "rockyou.txt"),
+			filepath.Join(filepath.Dir(wd), "orchestrator", "wordlist", "rockyou.txt"),
+		)
+	}
+
+	return allowed
+}
+
+func validateTmpPath(path string) (string, error) {
+	clean := filepath.Clean(path)
+	if !strings.HasPrefix(clean, "/tmp/") {
+		return "", fmt.Errorf("path must be under /tmp")
+	}
+	return clean, nil
+}
+
+func writeTempFiles(files []TempFile) ([]string, error) {
+	written := make([]string, 0, len(files))
+
+	for _, file := range files {
+		path, err := validateTmpPath(file.Path)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := os.WriteFile(path, []byte(file.Content), 0o600); err != nil {
+			return nil, err
+		}
+
+		written = append(written, path)
+	}
+
+	return written, nil
+}
+
+func cleanupPaths(paths []string) {
+	for _, path := range paths {
+		clean, err := validateTmpPath(path)
+		if err != nil {
+			continue
+		}
+		_ = os.Remove(clean)
+	}
+}
+
 /* ---------------- SYSTEM HANDLER ---------------- */
 
 func systemHandler(w http.ResponseWriter, r *http.Request) {
@@ -118,6 +228,14 @@ func johnHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
+
+	written, err := writeTempFiles(req.Files)
+	if err != nil {
+		http.Error(w, "Invalid john temp files: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer cleanupPaths(written)
+	defer cleanupPaths(req.Cleanup)
 
 	args, err := validateJohnArgs(req.Cmd)
 	if err != nil {
@@ -172,17 +290,24 @@ func validateJohnArgs(args []string) ([]string, error) {
 
 		if strings.HasPrefix(arg, "--pot=") {
 			p := strings.TrimPrefix(arg, "--pot=")
-			p = filepath.Clean(p)
-			if !strings.HasPrefix(p, "/tmp/") {
+			validatedPot, err := validateTmpPath(p)
+			if err != nil {
 				return nil, fmt.Errorf("pot file must be under /tmp")
 			}
-			clean = append(clean, "--pot="+p)
+			clean = append(clean, "--pot="+validatedPot)
 			continue
 		}
 
 		if strings.HasPrefix(arg, "--wordlist=") {
 			wl := strings.TrimPrefix(arg, "--wordlist=")
-			if wl != "/usr/share/wordlists/rockyou.txt" {
+			allowed := false
+			for _, candidate := range allowedJohnWordlists() {
+				if filepath.Clean(wl) == candidate {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
 				return nil, fmt.Errorf("unsupported wordlist path")
 			}
 			clean = append(clean, arg)
@@ -193,8 +318,8 @@ func validateJohnArgs(args []string) ([]string, error) {
 			return nil, fmt.Errorf("unsupported option: %s", arg)
 		}
 
-		path := filepath.Clean(arg)
-		if !strings.HasPrefix(path, "/tmp/") {
+		path, err := validateTmpPath(arg)
+		if err != nil {
 			return nil, fmt.Errorf("hash file must be under /tmp")
 		}
 		clean = append(clean, path)
@@ -209,14 +334,7 @@ func validateJohnArgs(args []string) ([]string, error) {
 
 func execJohn(cmd []string) *exec.Cmd {
 	profile := profilePath("john.profile")
-	finalArgs := []string{
-		"--quiet",
-		"--profile=" + profile,
-		"john",
-	}
-	finalArgs = append(finalArgs, cmd...)
-
-	return exec.Command("firejail", finalArgs...)
+	return sandboxedCommand("john", cmd, profile)
 }
 
 /* ---------------- SAFE EXECUTION ---------------- */
@@ -231,17 +349,12 @@ func runToolRequest(w http.ResponseWriter, req ToolRequest) {
 	log.Printf("TOOL EXEC: %s %v %s (profile=%s)",
 		req.Binary, req.Args, req.Target, profile)
 
-	finalArgs := []string{
-		"--quiet",
-		"--profile=" + profile,
-		req.Binary,
-	}
-	finalArgs = append(finalArgs, req.Args...)
+	finalArgs := append([]string{}, req.Args...)
 	if req.Target != "" {
 		finalArgs = append(finalArgs, req.Target)
 	}
 
-	cmd := exec.Command("firejail", finalArgs...)
+	cmd := sandboxedCommand(req.Binary, finalArgs, profile)
 	streamProcess(w, flusher, cmd)
 }
 
@@ -256,13 +369,7 @@ func runLegacyCommand(w http.ResponseWriter, command string) {
 	profile := profilePath("system.profile")
 	log.Printf("LEGACY EXEC: %s (profile=%s)", command, profile)
 
-	cmd := exec.Command(
-		"firejail",
-		"--quiet",
-		"--profile="+profile,
-		"stdbuf", "-oL", "-eL",
-		"bash", "-c", command,
-	)
+	cmd := bufferedShellCommand(command, profile)
 
 	streamProcess(w, flusher, cmd)
 }
@@ -323,6 +430,6 @@ func main() {
 	http.HandleFunc("/run-system", systemHandler)
 	http.HandleFunc("/run-john", johnHandler)
 
-	log.Println("Go sandbox listening on :9000 (Firejail enabled)")
+	log.Println("Go sandbox listening on :9000")
 	log.Fatal(http.ListenAndServe(":9000", nil))
 }

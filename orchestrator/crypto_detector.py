@@ -5,10 +5,6 @@ import re
 from collections import Counter
 from typing import Dict, Tuple
 
-from flask import Flask, jsonify, request
-
-app = Flask(__name__)
-
 HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 BCRYPT_RE = re.compile(r"^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$")
 ARGON2_RE = re.compile(r"^\$argon2(?:id|i|d)\$v=\d+\$[^\s]+\$[^\s]+\$[^\s]+$")
@@ -67,7 +63,7 @@ def is_jwt(value: str) -> Tuple[bool, str]:
     try:
         header_raw = base64.urlsafe_b64decode(_add_base64_padding(parts[0]))
         payload_raw = base64.urlsafe_b64decode(_add_base64_padding(parts[1]))
-        header_text = header_raw.decode("utf-8", errors="strict")
+        header_text = header_raw.decode2("utf-8", errors="strict")
         payload_text = payload_raw.decode("utf-8", errors="strict")
 
         if "{" in header_text and "alg" in header_text and "{" in payload_text:
@@ -117,58 +113,3 @@ def detect_hash(value: str) -> Tuple[str, str]:
         return "Unknown", f"high entropy ({entropy:.2f} bits/char), likely random"
 
     return "Unknown", f"unrecognized pattern, entropy={entropy:.2f} bits/char"
-
-
-@app.post("/crypto/detect")
-def detect_crypto():
-    try:
-        if not request.is_json:
-            return (
-                jsonify(
-                    {
-                        "input": "",
-                        "type": "Unknown",
-                        "details": "request must be JSON",
-                    }
-                ),
-                400,
-            )
-
-        payload = request.get_json(silent=True) or {}
-        input_value = payload.get("input")
-
-        if not isinstance(input_value, str):
-            return (
-                jsonify(
-                    {
-                        "input": "",
-                        "type": "Unknown",
-                        "details": "field 'input' must be a string",
-                    }
-                ),
-                400,
-            )
-
-        detected_type, details = detect_hash(input_value)
-        return jsonify({"input": input_value, "type": detected_type, "details": details})
-
-    except Exception as exc:
-        return (
-            jsonify(
-                {
-                    "input": "",
-                    "type": "Unknown",
-                    "details": f"internal error: {str(exc)}",
-                }
-            ),
-            500,
-        )
-
-
-@app.get("/health")
-def health_check():
-    return jsonify({"status": "ok"})
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)

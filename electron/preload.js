@@ -12,6 +12,26 @@ const API_BASES = [
   "http://localhost:8000",
 ];
 
+async function tryGet(path) {
+  let lastError = "Unknown error";
+
+  for (const base of API_BASES) {
+    try {
+      const res = await fetch(`${base}${path}`);
+      if (!res.ok) {
+        lastError = `Status ${res.status}`;
+        continue;
+      }
+
+      return await res.text();
+    } catch (err) {
+      lastError = String(err);
+    }
+  }
+
+  throw new Error(`Backend unreachable. Last error: ${lastError}`);
+}
+
 async function tryPost(path, body) {
   let lastError = "Unknown error";
 
@@ -45,8 +65,8 @@ contextBridge.exposeInMainWorld("api", {
   /* -------- Tool APIs -------- */
 
   listTools: async () => {
-    const res = await fetch("http://127.0.0.1:8000/tools");
-    return await res.json();
+    const text = await tryGet("/tools");
+    return JSON.parse(text);
   },
 
   runOnce: async (toolId, params) => {
@@ -55,13 +75,11 @@ contextBridge.exposeInMainWorld("api", {
       ...params,
     }).toString();
 
-    const url = `http://127.0.0.1:8000/stream?${query}`;
-    const res = await fetch(url);
-    return await res.text();
+    return await tryGet(`/stream?${query}`);
   },
 
   getStreamUrl: (toolId, params) => {
-    return `http://127.0.0.1:8000/stream?${new URLSearchParams({
+    return `${API_BASES[0]}/stream?${new URLSearchParams({
       tool: toolId,
       ...params,
     }).toString()}`;
