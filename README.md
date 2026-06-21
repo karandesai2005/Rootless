@@ -1,10 +1,18 @@
 # 🛡️ Rootless
 
-**A secure, sandboxed, cross-platform pentesting desktop console**
+**A secure, sandboxed pentesting desktop console** (cross-platform UI; Linux sandbox enforcement today)
 
 Rootless is a **security-first desktop application** that lets you run common pentesting tools like **Nmap** in **isolated environments**, without virtual machines, without package conflicts, and without unsafe sudo usage.
 
 **One install → one UI → isolated tools → live output.**
+
+---
+
+## Security
+
+Rootless is designed around least privilege and explicit trust boundaries. For assets, threat actors, per-layer mitigations, and known gaps (including platform parity), see **[THREAT_MODEL.md](THREAT_MODEL.md)**.
+
+To report a vulnerability privately, see **[SECURITY.md](SECURITY.md)**.
 
 ---
 
@@ -20,11 +28,11 @@ Traditional pentesting setups are painful and fragile:
 
 Rootless fixes this by:
 
-* Running tools in **OS-level sandboxes**
+* Running tools in **OS-level sandboxes** (Firejail on **Linux today**)
 * Keeping the **UI completely unprivileged**
 * Granting **only the exact capabilities required**
 * Streaming output live into a modern UI
-* Working toward **cross-platform parity**
+* Working toward **cross-platform sandbox parity** (macOS / Windows backends are roadmap items — the UI runs cross-platform, but sandbox enforcement is Linux-only right now)
 
 ---
 
@@ -70,12 +78,14 @@ Live stdout/stderr streamed back to UI
 * Streams stdout/stderr line-by-line
 * Handles process lifecycle safely
 
-#### 🔒 Firejail (Linux)
+#### 🔒 Firejail (Linux only — enforced today)
 
 * Filesystem isolation
 * Network access control
 * Capability-based privileges (`net_raw`, etc.)
 * No full root shells
+
+> **Platform note:** Firejail is the only sandbox backend with enforcement in this release. On macOS and Windows, the stack runs without equivalent isolation until dedicated backends land.
 
 ---
 
@@ -172,17 +182,14 @@ A compromised UI **does not** equal system compromise.
 
 ## 🧩 Tool Support
 
-### Current
+### First-class today
 
-* ✅ Nmap (preset-based, sandboxed)
-* ✅ Network interface discovery
+* ✅ **Nmap** — preset-based scans, dedicated Firejail profile, live SSE streaming
+* ✅ Network interface discovery (cross-platform, read-only)
 
-### In Progress
+### Catalog / roadmap (not first-class yet)
 
-* 🔜 Gobuster
-* 🔜 Wireless tooling (monitor mode aware)
-* 🔜 WASM-based tools
-* 🔜 Tool profiles & capability tiers
+* 🔜 Gobuster, wireless tooling, WASM-based tools — entries or stubs exist; they do not yet match the Nmap integration bar (preset schema + hardened profile + end-to-end UX)
 
 ---
 
@@ -211,12 +218,11 @@ Current focus:
 
 ## 🤝 Contributing
 
-This project is early-stage but stable.
-Ideas, reviews, and security discussions are welcome.
+Contributions are welcome — especially tool integrations that follow the preset-only, sandboxed pattern. Read **[CONTRIBUTING.md](CONTRIBUTING.md)** for project layout, local dev setup, the step-by-step tool integration checklist, and PR review rules (sandbox profile changes require explicit security review).
 
 ---
 
 ## 📜 License
 
-TBD (will be added before first public release)
+[Apache License 2.0](LICENSE) — Copyright 2026 Karan Desai
 
