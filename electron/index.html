@@ -2,21 +2,40 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Rootless — Secure Pentesting Console</title>
+  <title>Dracarys — Pentest Console</title>
 
   <style>
     :root {
-      --bg: #0b1020;
-      --panel: #0f172a;
-      --panel-2: #020617;
-      --border: #1e293b;
-      --text: #e5e7eb;
-      --muted: #94a3b8;
-      --accent: #38bdf8;
-      --accent-2: #0ea5e9;
-      --danger: #ef4444;
-      --success: #22c55e;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      /* surfaces */
+      --bg:           #080808;   /* page canvas — near black, not pure */
+      --panel:        #0d0d0d;   /* sidebar, input areas */
+      --panel-2:      #0a0a0a;   /* output pane, deeper panels */
+      --surface:      #111111;   /* hover states, elevated elements */
+
+      /* borders */
+      --border:       #1a1a1a;   /* default hairline */
+      --border-2:     #222222;   /* emphasis border */
+
+      /* text */
+      --text:         #d4cfc8;   /* primary — ash white, NOT pure white */
+      --text-2:       #666660;   /* secondary — warm gray */
+      --text-3:       #333330;   /* muted — barely visible */
+
+      /* accent — the single ember color */
+      --ember:        #8b1a1a;   /* maroon red — primary accent */
+      --ember-dim:    #3a0d0d;   /* ember background tint */
+      --ember-bright: #b02020;   /* ember hover state */
+      --ember-text:   #e8c8c8;   /* text on ember background */
+
+      /* semantic */
+      --success:      #1a3a1a;   /* dark green — exits, confirms */
+      --success-text: #4a8a4a;
+      --data:         #1a3a2a;   /* scan data rows */
+      --data-text:    #5a9a6a;
+
+      /* mono font stack */
+      --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code',
+              ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
     * {
@@ -27,56 +46,122 @@
       margin: 0;
       height: 100vh;
       display: flex;
-      background: radial-gradient(circle at top, #020617, #000);
+      background: var(--bg);
       color: var(--text);
-      font-family: Inter, system-ui, sans-serif;
+      font-family: var(--mono);
+      font-size: 12px;
     }
 
     /* ---------------- Sidebar ---------------- */
 
     .sidebar {
-      width: 260px;
-      background: linear-gradient(180deg, #020617, #020617);
-      border-right: 1px solid var(--border);
-      padding: 16px;
+      width: 220px;
+      background: var(--panel);
+      border-right: 0.5px solid var(--border);
       overflow-y: auto;
     }
 
-    .sidebar h3 {
-      margin: 0 0 12px;
-      font-size: 13px;
-      text-transform: uppercase;
+    .sidebar::-webkit-scrollbar { width: 3px; }
+    .sidebar::-webkit-scrollbar-track { background: transparent; }
+    .sidebar::-webkit-scrollbar-thumb { background: #111; }
+
+    #brand-header {
+      padding: 18px 16px 14px;
+      border-bottom: 0.5px solid var(--border);
+    }
+    #brand-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      background: var(--ember);
+      border-radius: 50%;
+      margin-right: 8px;
+      position: relative;
+      top: -1px;
+      animation: ember-pulse 3s ease-in-out infinite;
+    }
+    #brand-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
       letter-spacing: 0.12em;
-      color: var(--muted);
+      text-transform: uppercase;
+    }
+    #brand-sub {
+      font-size: 9px;
+      color: var(--text-3);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      margin-top: 4px;
+      padding-left: 15px;
+    }
+
+    #netInfoBtn {
+      background: var(--panel);
+      border: 0.5px solid var(--border-2);
+      color: var(--text-2);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      border-radius: 4px;
+      width: calc(100% - 32px);
+      margin: 16px 16px 0 16px;
+      padding: 10px;
+      cursor: pointer;
+    }
+
+    .sidebar h3 {
+      display: none;
     }
 
     .category-label {
-      margin: 14px 0 6px;
-      font-size: 11px;
-      color: var(--muted);
+      color: var(--text-3);
+      font-size: 9px;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
-      letter-spacing: 0.1em;
+      padding: 14px 16px 5px;
+      margin: 0;
     }
 
     .tool-item {
       padding: 10px 12px;
       cursor: pointer;
-      border-radius: 8px;
       margin-bottom: 6px;
-      background: transparent;
-      border: 1px solid transparent;
-      transition: all 0.15s ease;
+      border-left: 2px solid transparent;
+      color: var(--text-2);
+      transition: border-left-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+      animation: tool-enter 0.2s ease-out both;
     }
+    .tool-item:nth-child(1)  { animation-delay: 0.03s; }
+    .tool-item:nth-child(2)  { animation-delay: 0.06s; }
+    .tool-item:nth-child(3)  { animation-delay: 0.09s; }
+    .tool-item:nth-child(4)  { animation-delay: 0.12s; }
+    .tool-item:nth-child(5)  { animation-delay: 0.15s; }
+    .tool-item:nth-child(6)  { animation-delay: 0.18s; }
+    .tool-item:nth-child(7)  { animation-delay: 0.21s; }
+    .tool-item:nth-child(8)  { animation-delay: 0.24s; }
 
     .tool-item:hover {
-      background: rgba(56, 189, 248, 0.08);
-      border-color: rgba(56, 189, 248, 0.3);
+      border-left-color: var(--ember-dim);
+      color: var(--text);
+      background: #0f0f0f;
     }
 
     .tool-item.active {
-      background: rgba(56, 189, 248, 0.15);
-      border-color: var(--accent);
-      color: var(--accent);
+      border-left: 2px solid var(--ember);
+      background: var(--surface);
+      color: var(--text);
+    }
+    .tool-item.active::before {
+      content: '';
+      display: inline-block;
+      width: 4px;
+      height: 4px;
+      background: var(--ember);
+      border-radius: 50%;
+      margin-right: 8px;
+      opacity: 0.9;
     }
 
     /* ---------------- Main ---------------- */
@@ -87,20 +172,22 @@
       flex-direction: column;
       padding: 18px;
       gap: 14px;
+      background: var(--bg);
     }
 
     #toolName {
       margin: 0;
-      font-size: 20px;
-      font-weight: 600;
-      letter-spacing: 0.02em;
+      font-size: 13px;
+      color: var(--text);
+      letter-spacing: 0.04em;
+      font-weight: 500;
     }
 
     /* ---------------- Inputs ---------------- */
 
     .inputs {
       background: var(--panel);
-      border: 1px solid var(--border);
+      border: 0.5px solid var(--border);
       border-radius: 12px;
       padding: 14px;
       display: grid;
@@ -108,14 +195,16 @@
     }
 
     .tool-desc {
-      font-size: 13px;
-      color: var(--muted);
+      font-size: 12px;
+      color: var(--text-2);
       margin-bottom: 6px;
     }
 
     .input-row label {
-      font-size: 12px;
-      color: var(--muted);
+      font-size: 9px;
+      color: var(--text-3);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
       margin-bottom: 4px;
       display: block;
     }
@@ -125,20 +214,20 @@
     .input-row textarea {
       width: 100%;
       padding: 9px 10px;
-      background: var(--panel-2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text);
+      background: var(--panel);
+      border: 0.5px solid var(--border);
+      color: var(--text-2);
       font-family: var(--mono);
-      font-size: 13px;
-      outline: none;
+      font-size: 12px;
+      border-radius: 3px;
     }
 
     .input-row input:focus,
     .input-row select:focus,
     .input-row textarea:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.3);
+      border-color: var(--ember);
+      outline: none;
+      box-shadow: 0 0 0 1px var(--ember-dim);
     }
 
     .input-row textarea {
@@ -154,45 +243,118 @@
       gap: 10px;
     }
 
-    button {
-      padding: 10px 14px;
-      background: linear-gradient(180deg, var(--accent), var(--accent-2));
-      color: #020617;
-      border-radius: 10px;
+    #runBtn {
+      background: var(--ember);
+      color: var(--ember-text);
       border: none;
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 9px 20px;
       cursor: pointer;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      transition: transform 0.08s ease, box-shadow 0.08s ease;
+    }
+    #runBtn:hover {
+      background: var(--ember-bright);
     }
 
-    button:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px rgba(56, 189, 248, 0.3);
+    #runStreamBtn {
+      background: transparent;
+      border: 0.5px solid var(--border-2);
+      color: var(--text-2);
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 9px 20px;
+      cursor: pointer;
     }
-
-    button:active {
-      transform: translateY(0);
+    #runStreamBtn:hover {
+      border-color: var(--ember);
+      color: var(--text);
     }
 
     /* ---------------- Output ---------------- */
 
     #out {
       flex: 1;
-      background: #020617;
-      border: 1px solid var(--border);
-      border-radius: 14px;
+      background: var(--panel-2);
+      border: 0.5px solid var(--border);
+      border-radius: 6px;
       padding: 14px;
       font-family: var(--mono);
-      font-size: 13px;
+      font-size: 11px;
+      line-height: 1.75;
       overflow-y: auto;
       white-space: pre-wrap;
-      color: #e2e8f0;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+      color: var(--text-3);
     }
 
-    #out::selection {
-      background: rgba(56, 189, 248, 0.4);
+    #out::-webkit-scrollbar { width: 4px; }
+    #out::-webkit-scrollbar-track { background: transparent; }
+    #out::-webkit-scrollbar-thumb { background: #1a1a1a; border-radius: 2px; }
+    #out::-webkit-scrollbar-thumb:hover { background: var(--ember-dim); }
+
+    .line-system  { color: #8b1a1a; font-style: italic; }
+    .line-data    { color: #5a9a6a; }
+    .line-error   { color: #8b3a3a; }
+    .line-success { color: #4a8a4a; }
+    .line-highlight { color: #7a6a5a; }
+    .line-default { color: #333330; }
+
+    #out-cursor {
+      color: var(--ember);
+      animation: cursor-blink 1.2s step-end infinite;
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    /* ---------------- Network Info ---------------- */
+
+    #netPanel {
+      display: none;
+      position: fixed;
+      left: 260px;
+      top: 20px;
+      right: 20px;
+      bottom: 20px;
+      padding: 16px;
+      overflow-y: auto;
+      background: var(--panel-2);
+      border: 0.5px solid var(--border);
+      border-radius: 16px;
+      z-index: 999;
+      color: var(--text-2);
+    }
+
+    /* ---------------- Animations ---------------- */
+
+    @keyframes ember-pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--ember); }
+      50%      { opacity: 0.6; box-shadow: 0 0 1px var(--ember); }
+    }
+
+    @keyframes tool-enter {
+      from { opacity: 0; transform: translateX(-6px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    @keyframes line-in {
+      from { opacity: 0; transform: translateY(3px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes btn-flare {
+      0%   { box-shadow: 0 0 0 0 rgba(139,26,26,0.6); }
+      50%  { box-shadow: 0 0 0 8px rgba(139,26,26,0); }
+      100% { box-shadow: 0 0 0 0 rgba(139,26,26,0); }
+    }
+
+    @keyframes cursor-blink {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0; }
     }
   </style>
 </head>
@@ -202,19 +364,13 @@
   <!-- ================= SIDEBAR ================= -->
 
   <div class="sidebar">
-    <button id="netInfoBtn" style="
-      width:100%;
-      margin-bottom:14px;
-      padding:10px;
-      border-radius:10px;
-      border:1px solid var(--border);
-      background:#020617;
-      color:var(--accent);
-      cursor:pointer;
-      font-weight:600;
-    ">
-      🌐 Network Info
-    </button>
+    <div id="brand-header">
+      <span id="brand-dot"></span>
+      <span id="brand-name">DRACARYS</span>
+      <div id="brand-sub">pentest console · v0.2</div>
+    </div>
+    
+    <button id="netInfoBtn">Network Info</button>
 
     <h3>Tools</h3>
     <div id="customTools"></div>
@@ -240,20 +396,7 @@
 
   <!-- ================= NETWORK INFO PANEL ================= -->
 
-  <div id="netPanel" style="
-    display:none;
-    position:fixed;
-    left:260px;
-    top:20px;
-    right:20px;
-    bottom:20px;
-    padding:16px;
-    overflow-y:auto;
-    background:#020617;
-    border:1px solid var(--border);
-    border-radius:16px;
-    z-index:999;
-  ">
+  <div id="netPanel">
   </div>
 
   <!-- ================= SCRIPTS ================= -->

@@ -1,228 +1,90 @@
-# 🛡️ Rootless
+# 🔥 DRACARYS
 
-**A secure, sandboxed pentesting desktop console** (cross-platform UI; Linux sandbox enforcement today)
+**pentest tools. no installs.**
 
-Rootless is a **security-first desktop application** that lets you run common pentesting tools like **Nmap** in **isolated environments**, without virtual machines, without package conflicts, and without unsafe sudo usage.
+Dracarys (formerly Rootless) is an open-source, sandboxed pentesting desktop console. Run tools like **Nmap, Gobuster, Ffuf, Nikto, and John the Ripper** in isolated environments, without virtual machines, without local installations, and without unsafe sudo usage.
 
-**One install → one UI → isolated tools → live output.**
-
----
-
-## Security
-
-Rootless is designed around least privilege and explicit trust boundaries. For assets, threat actors, per-layer mitigations, and known gaps (including platform parity), see **[THREAT_MODEL.md](THREAT_MODEL.md)**.
-
-To report a vulnerability privately, see **[SECURITY.md](SECURITY.md)**.
+**One install → isolated tools → live output.**
 
 ---
 
-## ✨ Why Rootless?
+## ✨ Features
 
-Traditional pentesting setups are painful and fragile:
-
-* Virtual machines are heavy and slow
-* Toolchains conflict with system packages
-* Many tools are Linux-only
-* `sudo` everywhere is dangerous
-* Switching between terminals kills focus
-
-Rootless fixes this by:
-
-* Running tools in **OS-level sandboxes** (Firejail on **Linux today**)
-* Keeping the **UI completely unprivileged**
-* Granting **only the exact capabilities required**
-* Streaming output live into a modern UI
-* Working toward **cross-platform sandbox parity** (macOS / Windows backends are roadmap items — the UI runs cross-platform, but sandbox enforcement is Linux-only right now)
+* **🔥 Firejail Sandboxed:** Every tool runs in an isolated cage. `caps.drop all`, private-bin, network-scoped. Your system stays clean. (Linux MVP)
+* **⚡ Live Streaming Output:** Results stream line by line via SSE. No waiting for scans to finish. Watch it happen in real time.
+* **🛡️ No Shell Injection:** Preset-driven flags only. No free-text CLI input. The attack surface is a typed allowlist.
+* **📦 Auto Binary Fetch:** Missing a tool? Dracarys downloads it, verifies SHA256, and caches it in your home directory. No `apt-get` needed.
+* **🔍 Crypto Identifier:** Paste a hash, get the type back. MD5, SHA256, bcrypt, JWT, Base64 — all detected and crackable via John the Ripper.
+* **🌐 Network Aware:** Live interface inspector shows your IPs, MACs, and CIDRs. Pick your target interface before you scan.
 
 ---
 
 ## 🧠 Architecture Overview
 
-Rootless uses a **layered, least-privilege architecture**.
-![alt text](image.png)
+Dracarys uses a **layered, least-privilege architecture** with four distinct trust boundaries. The renderer has zero exec privilege, and the sandbox never touches the host filesystem.
 
 ```
-Electron UI
-   ↓ IPC (safe bridge)
+Electron UI (Renderer)
+   ↓ IPC (no Node.js access)
 FastAPI Orchestrator (Python)
-   ↓ HTTP + SSE
+   ↓ HTTP + SSE (tool allowlist)
 Go Sandbox Runtime
-   ↓ exec
+   ↓ exec.Command
 Firejail (Linux isolation)
    ↓
-Pentesting Tool (Nmap, Gobuster, etc.)
-   ↑
-Live stdout/stderr streamed back to UI
+Pentesting Tool (Nmap, Gobuster, John, etc.)
 ```
 
-### Layer Responsibilities
+### Security & Threat Model
+Dracarys is designed around least privilege and explicit trust boundaries. For assets, threat actors, per-layer mitigations, and known gaps (including platform parity), see **[THREAT_MODEL.md](THREAT_MODEL.md)**.
 
-#### 🖥️ Electron UI
-
-* Tool selection & presets
-* Network interface visibility
-* Live streaming output
-* **No Node.js access**
-* **No command execution**
-
-#### 🐍 FastAPI Orchestrator
-
-* Validates tool requests
-* Maps UI presets → safe commands
-* Selects sandbox profiles
-* Acts as SSE proxy
-
-#### ⚙️ Go Sandbox
-
-* Spawns and supervises tools
-* Streams stdout/stderr line-by-line
-* Handles process lifecycle safely
-
-#### 🔒 Firejail (Linux only — enforced today)
-
-* Filesystem isolation
-* Network access control
-* Capability-based privileges (`net_raw`, etc.)
-* No full root shells
-
-> **Platform note:** Firejail is the only sandbox backend with enforcement in this release. On macOS and Windows, the stack runs without equivalent isolation until dedicated backends land.
+To report a vulnerability privately, see **[SECURITY.md](SECURITY.md)**.
 
 ---
 
-## 🌐 Network Intelligence Panel
+## 🧩 Bundled Tools
 
-Rootless includes a **built-in network awareness panel**.
+* ✅ **Nmap** — Preset-based service and port scans, dedicated Firejail profile, live SSE streaming.
+* ✅ **Gobuster** — Directory brute-forcing with built-in wordlists.
+* ✅ **Crypto Identifier & Cracker** — Powered by John the Ripper.
+* ✅ **Ffuf / Nikto** — Web fuzzing and scanning integrations.
 
-![alt text](image-1.png)
-
-Features:
-
-* Lists all network interfaces
-* Shows IPv4 / IPv6 addresses
-* Identifies loopback vs real interfaces
-* Cross-platform via `os.networkInterfaces()`
-* No shell commands, no parsing hacks
-
-This allows users to:
-
-* Instantly identify local subnets
-* Choose correct scan targets
-* Avoid accidental scans on the wrong interface
+> **Platform note:** Firejail is the only sandbox backend with enforcement in this release. Dracarys is currently a **Linux MVP**. On macOS and Windows, the stack requires future sandbox-exec or AppContainer implementations.
 
 ---
 
-## 🔍 Nmap Integration (First-Class)
+## 🚀 Getting Started (Development)
 
-Nmap is not treated as a raw command runner.
+To run Dracarys locally from source, you need Node.js, Python 3, and Go installed.
 
-### Design Principles
-
-* ❌ No free-text flags
-* ❌ No `sudo` in the UI
-* ✅ Preset-driven scans
-* ✅ Capability-based privileges
-* ✅ Live output streaming
-
-### Example
-
-Instead of running:
-
-```bash
-sudo nmap -sS -sV 192.168.1.0/24
-```
-
-Users simply:
-
-1. Select **Nmap**
-2. Choose a scan type (Quick, TCP, Service, Ping)
-3. Enter a target
-4. Click **Run**
-
-Rootless automatically:
-
-* Chooses safe flags
-* Selects the correct sandbox profile
-* Streams output in real time
-
-![alt text](image-2.png)
----
-
-## 📺 Live Streaming Output
-
-All tools stream output **live**, end-to-end.
-
-* Line-buffered execution
-* stdout and stderr handled separately
-* Server-Sent Events (SSE)
-* No polling
-* No fake progress bars
-
-The UI shows **exactly what the tool prints**, as it happens.
-
----
-
-## 🔐 Security Model
-
-Rootless follows **least privilege by default**.
-
-* Renderer process cannot execute commands
-* Orchestrator only accepts known tools
-* Sandbox enforces filesystem isolation
-* Network access is explicit
-* Raw sockets only when required
-* One-way trust flow:
-
-```
-UI → Orchestrator → Sandbox → Tool
-```
-
-A compromised UI **does not** equal system compromise.
-
----
-
-## 🧩 Tool Support
-
-### First-class today
-
-* ✅ **Nmap** — preset-based scans, dedicated Firejail profile, live SSE streaming
-* ✅ Network interface discovery (cross-platform, read-only)
-
-### Catalog / roadmap (not first-class yet)
-
-* 🔜 Gobuster, wireless tooling, WASM-based tools — entries or stubs exist; they do not yet match the Nmap integration bar (preset schema + hardened profile + end-to-end UX)
-
----
-
-## 🚧 Project Status
-
-Rootless is **actively developed**.
-
-Current focus:
-
-* Hardening sandbox profiles
-* Improving Nmap UX
-* Expanding tool abstractions
-* Preparing cross-platform backends (macOS / Windows)
-
----
-
-## 🛣️ Short-Term Roadmap
-
-* Interface → auto-fill scan target
-* Tool-specific permission warnings
-* Saved scan presets
-* Tool result export
-* App packaging (AppImage / dmg / exe)
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Set up the Python virtual environment:
+   ```bash
+   python3 -m venv orchestrator/.venv
+   source orchestrator/.venv/bin/activate
+   pip install -r orchestrator/requirements.txt
+   ```
+4. Fire it up:
+   ```bash
+   npm run dev
+   ```
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome — especially tool integrations that follow the preset-only, sandboxed pattern. Read **[CONTRIBUTING.md](CONTRIBUTING.md)** for project layout, local dev setup, the step-by-step tool integration checklist, and PR review rules (sandbox profile changes require explicit security review).
+We need you! Dracarys is built in public and relies on community contributions. 
+
+Contributions are heavily welcome — especially tool integrations that follow the preset-only, sandboxed pattern, or implementations for Windows/macOS sandboxing. 
+
+Read **[CONTRIBUTING.md](CONTRIBUTING.md)** for project layout, local dev setup, the step-by-step tool integration checklist, and PR review rules (sandbox profile changes require explicit security review).
 
 ---
 
 ## 📜 License
 
 [Apache License 2.0](LICENSE) — Copyright 2026 Karan Desai
-

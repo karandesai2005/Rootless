@@ -17,18 +17,63 @@ const netPanel = document.getElementById("netPanel");
 
 /* -------------------- Helpers -------------------- */
 
+let cursorEl = document.createElement("span");
+cursorEl.id = "out-cursor";
+cursorEl.textContent = "▋";
+
+function showCursor() {
+  if (!outEl.contains(cursorEl)) {
+    outEl.appendChild(cursorEl);
+  }
+}
+
+function hideCursor() {
+  if (outEl.contains(cursorEl)) {
+    cursorEl.remove();
+  }
+}
+
 function log(msg) {
-  outEl.textContent += `${msg}\n`;
+  const el = document.createElement("div");
+  el.textContent = msg;
+  
+  const lower = String(msg).toLowerCase();
+  if (lower.startsWith("[dracarys]") || lower.startsWith("[rootless]")) {
+    el.className = "line-system";
+  } else if (lower.includes("open") && /\d+\/tcp/.test(lower)) {
+    el.className = "line-data";
+  } else if (lower.startsWith("err:") || lower.includes("error")) {
+    el.className = "line-error";
+  } else if (lower.includes("[exit 0]") || lower.includes("done:") || lower.includes("finished")) {
+    el.className = "line-success";
+  } else if (lower.includes("starting") || lower.includes("nmap scan report") || lower.includes("host is up")) {
+    el.className = "line-highlight";
+  } else {
+    el.className = "line-default";
+  }
+
+  el.style.animation = 'line-in 0.15s ease-out both';
+  
+  if (outEl.contains(cursorEl)) {
+    outEl.insertBefore(el, cursorEl);
+  } else {
+    outEl.appendChild(el);
+  }
   outEl.scrollTop = outEl.scrollHeight;
 }
 
 function clearLog() {
-  outEl.textContent = "";
+  outEl.innerHTML = "";
+  if (cursorEl && outEl.contains(cursorEl)) {
+    outEl.appendChild(cursorEl);
+  }
 }
 
 function logJson(obj) {
-  outEl.textContent += `${JSON.stringify(obj, null, 2)}\n`;
-  outEl.scrollTop = outEl.scrollHeight;
+  const lines = JSON.stringify(obj, null, 2).split("\n");
+  for (const line of lines) {
+    log(line);
+  }
 }
 
 function setActiveTool(item) {
@@ -146,14 +191,7 @@ function renderSseValue(value) {
   }
 
   if (value.startsWith("[rootless]")) {
-    // Show download progress differently from tool output
-    const msg = value.replace("[rootless] ", "");
-    const el = document.createElement("div");
-    el.style.color = "var(--accent)";
-    el.style.fontStyle = "italic";
-    el.textContent = msg;
-    outEl.appendChild(el);
-    outEl.scrollTop = outEl.scrollHeight;
+    log(`[dracarys] ${value.replace("[rootless] ", "")}`);
     return false;
   }
 
@@ -181,6 +219,7 @@ async function runStandardTool(streamed) {
 
   if (streamed) {
     log("[Opening live stream]");
+    showCursor();
     const streamUrl = window.api.getStreamUrl(currentTool.id, params);
     currentStream = new EventSource(streamUrl);
 
@@ -188,25 +227,29 @@ async function runStandardTool(streamed) {
       const shouldClose = renderSseValue(event.data);
       if (shouldClose) {
         closeCurrentStream();
+        hideCursor();
       }
     };
 
     currentStream.onerror = () => {
       log("[Stream closed]");
       closeCurrentStream();
+      hideCursor();
     };
 
     return;
   }
 
   log("[Running one-shot]");
-
+  showCursor();
   try {
     const response = await window.api.runOnce(currentTool.id, params);
     parseSseText(response).forEach(renderSseValue);
   } catch (err) {
     log("[Error]");
     log(String(err));
+  } finally {
+    hideCursor();
   }
 }
 
@@ -472,6 +515,11 @@ async function runCryptoCrack() {
 /* ----------------------- Actions ------------------------ */
 
 runBtn.onclick = async () => {
+  runBtn.style.animation = 'none';
+  requestAnimationFrame(() => {
+    runBtn.style.animation = 'btn-flare 0.4s ease-out';
+  });
+
   if (!currentTool) {
     return;
   }
