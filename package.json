@@ -4,9 +4,10 @@
     "wait-on": "^9.0.4"
   },
   "scripts": {
-    "start:api": "python3 -m uvicorn app:app --app-dir orchestrator --reload --port 8000",
-    "start:sandbox": "go run ./sandbox-go/main.go",
-    "start:electron": "wait-on http://127.0.0.1:8000/tools && npm --prefix electron start",
+    "start:api": "orchestrator/.venv/bin/python3 -m uvicorn app:app --app-dir orchestrator --reload --port 8000",
+    "setup:gobuster": "go install github.com/OJ/gobuster/v3@latest",
+    "start:sandbox": "cd sandbox-go && PATH=\"$HOME/go/bin:$HOME/.local/bin:$PATH\" go run main.go",
+    "start:electron": "wait-on http-get://127.0.0.1:8000/tools && npm --prefix electron start",
     "dev": "concurrently -k -n API,SANDBOX,ELECTRON -c green,blue,magenta \"npm run start:api\" \"npm run start:sandbox\" \"npm run start:electron\""
   }
 }

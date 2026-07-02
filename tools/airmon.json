@@ -1,0 +1,22 @@
+{
+  "id": "airmon",
+  "name": "Airmon-ng",
+  "binary": "airmon-ng",
+  "profile": "airmon.profile",
+  "type": "system",
+  "description": "Enable/disable monitor mode on WiFi interfaces.",
+  "scans": {
+    "start": {
+      "label": "Start Monitor Mode",
+      "args": ["start"]
+    },
+    "stop": {
+      "label": "Stop Monitor Mode",
+      "args": ["stop"]
+    },
+    "check": {
+      "label": "Check Interfering Processes",
+      "args": ["check"]
+    }
+  }
+}

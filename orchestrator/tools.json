@@ -20,32 +20,5 @@
         { "key": "TARGET", "label": "Target Input", "type": "text", "required": true }
       ]
     }
-  ],
-
-  "web": [
-    {
-      "id": "gobuster",
-      "name": "Gobuster",
-      "type": "system",
-      "cmd": "gobuster dir -u {TARGET} -w {WORDLIST}",
-      "description": "Directory brute-forcer.",
-      "params": [
-        { "key": "TARGET", "label": "Website URL", "type": "text", "required": true },
-        { "key": "WORDLIST", "label": "Wordlist Path", "type": "text", "required": true }
-      ]
-    }
-  ],
-
-  "wireless": [
-    {
-      "id": "airmon",
-      "name": "Airmon-ng",
-      "type": "system",
-      "cmd": "airmon-ng start {IFACE}",
-      "description": "Enable monitor mode on a WiFi interface.",
-      "params": [
-        { "key": "IFACE", "label": "Network Interface", "type": "text", "required": true }
-      ]
-    }
   ]
 }

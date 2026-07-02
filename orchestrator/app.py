@@ -17,14 +17,16 @@ GO_SANDBOX_URL = os.getenv("GO_SANDBOX_URL", "http://127.0.0.1:9000")
 DEFAULT_WORDLIST_PATH = "/usr/share/wordlists/rockyou.txt"
 
 def resolve_wordlist_path() -> Optional[str]:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.getenv("ROCKYOU_WORDLIST"),
         DEFAULT_WORDLIST_PATH,
+        os.path.join(base_dir, "..", "tools", "wordlists", "passwords.txt"),
     ]
 
     for candidate in candidates:
         if candidate and os.path.exists(candidate):
-            return candidate
+            return os.path.abspath(candidate)
 
     return None
 
@@ -35,9 +37,9 @@ ROCKYOU_WORDLIST = resolve_wordlist_path()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://localhost", "http://localhost:8000", "http://127.0.0.1:8000"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 # -------------------- Load legacy tools.json --------------------
@@ -265,6 +267,38 @@ def resolve_query_params(request: Request, target: str, scan: str) -> dict[str, 
     return params
 
 
+def resolve_tool_wordlist_args(args: list) -> list[str]:
+    resolved = []
+
+    for arg in args:
+        if arg.endswith(".txt") and not os.path.isabs(arg):
+            found = None
+            for tool_dir in tool_definition_dirs():
+                candidate = os.path.join(tool_dir, "wordlists", arg)
+                if os.path.isfile(candidate):
+                    found = os.path.abspath(candidate)
+                    break
+            resolved.append(found if found else arg)
+            continue
+
+        if arg.startswith("/usr/share/wordlists/"):
+            found = None
+            for tool_dir in tool_definition_dirs():
+                candidate = os.path.join(tool_dir, "wordlists", os.path.basename(arg))
+                if os.path.isfile(candidate):
+                    found = os.path.abspath(candidate)
+                    break
+            if found and not os.path.isfile(arg):
+                resolved.append(found)
+            else:
+                resolved.append(arg)
+            continue
+
+        resolved.append(arg)
+
+    return resolved
+
+
 def substitute_placeholders(command: str, params: dict[str, str]) -> str:
     resolved = command
 
@@ -292,11 +326,17 @@ async def stream(request: Request, tool: str, target: str = "", scan: str = ""):
         if not target_value:
             raise HTTPException(status_code=400, detail="Missing required parameter: target")
 
+        # Automatically prepend http:// for gobuster directory scans if schema is missing
+        if tool_def["id"] == "gobuster" and selected_scan.startswith("dir"):
+            if not target_value.startswith(("http://", "https://")):
+                target_value = "http://" + target_value
+
         scan_def = available_scans[selected_scan]
         payload = {
             "tool": tool_def["id"],
             "binary": tool_def["binary"],
-            "args": scan_def["args"],
+            "binary_name": tool_def.get("binary_name", tool_def["binary"]),
+            "args": resolve_tool_wordlist_args(scan_def["args"]),
             "target": target_value,
             "profile": tool_def["profile"],
         }
@@ -409,7 +449,14 @@ async def crack_crypto(request: Request):
         f"--pot={pot_path}",
         temp_path,
     ]
-    await run_john_via_sandbox(run_cmd, files=[hash_file])
+    run_output, run_exit_code = await run_john_via_sandbox(run_cmd, files=[hash_file])
+    if run_exit_code != 0:
+        return {
+            "detected": detected_type,
+            "result": f"Error: {run_output}",
+            "cracked": False,
+            "password": None,
+        }
 
     show_cmd = ["--no-log", f"--pot={pot_path}", "--show", temp_path]
     show_output, _ = await run_john_via_sandbox(

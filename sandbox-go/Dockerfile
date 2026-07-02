@@ -15,8 +15,10 @@ RUN apt-get update && \
         bash \
         coreutils \
         firejail \
+        gobuster \
         john \
         nmap \
+        dirb \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 

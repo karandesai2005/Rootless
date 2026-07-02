@@ -1,0 +1,23 @@
+{
+  "id": "gobuster",
+  "name": "Gobuster",
+  "binary": "gobuster",
+  "binary_name": "gobuster",
+  "profile": "gobuster.profile",
+  "type": "system",
+  "description": "Directory and DNS brute-forcer. Preset-driven, no free-text flags.",
+  "scans": {
+    "dir-common": {
+      "label": "Common Dirs (fast)",
+      "args": ["dir", "-w", "common.txt", "-u"]
+    },
+    "dir-medium": {
+      "label": "Medium Wordlist",
+      "args": ["dir", "-w", "medium.txt", "-u"]
+    },
+    "dns": {
+      "label": "DNS Subdomain Enum",
+      "args": ["dns", "-d"]
+    }
+  }
+}

@@ -63,7 +63,7 @@ def is_jwt(value: str) -> Tuple[bool, str]:
     try:
         header_raw = base64.urlsafe_b64decode(_add_base64_padding(parts[0]))
         payload_raw = base64.urlsafe_b64decode(_add_base64_padding(parts[1]))
-        header_text = header_raw.decode2("utf-8", errors="strict")
+        header_text = header_raw.decode("utf-8", errors="strict")
         payload_text = payload_raw.decode("utf-8", errors="strict")
 
         if "{" in header_text and "alg" in header_text and "{" in payload_text:

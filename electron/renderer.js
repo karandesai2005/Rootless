@@ -145,6 +145,18 @@ function renderSseValue(value) {
     return false;
   }
 
+  if (value.startsWith("[rootless]")) {
+    // Show download progress differently from tool output
+    const msg = value.replace("[rootless] ", "");
+    const el = document.createElement("div");
+    el.style.color = "var(--accent)";
+    el.style.fontStyle = "italic";
+    el.textContent = msg;
+    outEl.appendChild(el);
+    outEl.scrollTop = outEl.scrollHeight;
+    return false;
+  }
+
   log(value);
   return false;
 }

@@ -3,6 +3,7 @@
   "name": "Nmap",
   "type": "system",
   "binary": "nmap",
+  "binary_name": "nmap",
   "profile": "nmap.profile",
 
   "scans": {

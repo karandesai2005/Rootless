@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/karandesai2005/Rootless/sandbox-go/toolmanager"
 )
 
 /* ---------------- REQUEST MODELS ---------------- */
@@ -22,11 +24,12 @@ type SystemRequest struct {
 }
 
 type ToolRequest struct {
-	Tool    string   `json:"tool"`
-	Binary  string   `json:"binary"`
-	Args    []string `json:"args"`
-	Target  string   `json:"target"`
-	Profile string   `json:"profile"`
+	Tool       string   `json:"tool"`
+	Binary     string   `json:"binary"`
+	BinaryName string   `json:"binary_name"`
+	Args       []string `json:"args"`
+	Target     string   `json:"target"`
+	Profile    string   `json:"profile"`
 }
 
 type JohnRequest struct {
@@ -95,9 +98,88 @@ func envEnabled(name string) bool {
 	return value == "1" || value == "true" || value == "yes"
 }
 
+func expandedPath() string {
+	seen := make(map[string]struct{})
+	parts := make([]string, 0, 16)
+
+	add := func(entries ...string) {
+		for _, entry := range entries {
+			if entry == "" {
+				continue
+			}
+			if _, ok := seen[entry]; ok {
+				continue
+			}
+			seen[entry] = struct{}{}
+			parts = append(parts, entry)
+		}
+	}
+
+	if extra := strings.TrimSpace(os.Getenv("SANDBOX_EXTRA_PATH")); extra != "" {
+		add(strings.Split(extra, ":")...)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		add(
+			filepath.Join(home, "go", "bin"),
+			filepath.Join(home, ".local", "bin"),
+		)
+	}
+	add("/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin")
+	if current := os.Getenv("PATH"); current != "" {
+		add(strings.Split(current, ":")...)
+	}
+
+	return strings.Join(parts, ":")
+}
+
+func init() {
+	_ = os.Setenv("PATH", expandedPath())
+}
+
 func binaryExists(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
+}
+
+func resolveBinary(name string) (string, error) {
+	return exec.LookPath(name)
+}
+
+func commandEnv() []string {
+	path := expandedPath()
+	env := os.Environ()
+	filtered := make([]string, 0, len(env)+1)
+
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "PATH=") {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+
+	filtered = append(filtered, "PATH="+path)
+	return filtered
+}
+
+func extraFirejailWhitelist(args []string) []string {
+	seen := make(map[string]struct{})
+	extras := make([]string, 0)
+
+	for _, arg := range args {
+		if !strings.HasSuffix(arg, ".txt") || !filepath.IsAbs(arg) {
+			continue
+		}
+
+		dir := filepath.Clean(filepath.Dir(arg))
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		// read-only grants access without breaking private-bin (CLI --whitelist does).
+		extras = append(extras, "--read-only="+dir)
+	}
+
+	return extras
 }
 
 func shouldUseFirejail() bool {
@@ -113,20 +195,26 @@ func shouldUseFirejail() bool {
 	return true
 }
 
-func sandboxedCommand(binary string, args []string, profile string) *exec.Cmd {
+func sandboxedCommand(binary string, args []string, profile string, firejailExtras ...string) *exec.Cmd {
 	if shouldUseFirejail() {
 		finalArgs := []string{"--quiet"}
+		finalArgs = append(finalArgs, firejailExtras...)
 		if profile != "" {
 			finalArgs = append(finalArgs, "--profile="+profile)
 		}
 		finalArgs = append(finalArgs, binary)
 		finalArgs = append(finalArgs, args...)
-		return exec.Command("firejail", finalArgs...)
+		cmd := exec.Command("firejail", finalArgs...)
+		cmd.Env = commandEnv()
+		return cmd
 	}
 
-	return exec.Command(binary, args...)
+	cmd := exec.Command(binary, args...)
+	cmd.Env = commandEnv()
+	return cmd
 }
 
+// TODO: remove legacy shell path once all tools migrated to ToolRequest
 func bufferedShellCommand(command string, profile string) *exec.Cmd {
 	if binaryExists("stdbuf") {
 		return sandboxedCommand("stdbuf", []string{"-oL", "-eL", "bash", "-c", command}, profile)
@@ -150,6 +238,9 @@ func allowedJohnWordlists() []string {
 		allowed = append(allowed,
 			filepath.Join(wd, "orchestrator", "wordlist", "rockyou.txt"),
 			filepath.Join(filepath.Dir(wd), "orchestrator", "wordlist", "rockyou.txt"),
+			// Allow bundled wordlists
+			filepath.Join(wd, "tools", "wordlists", "passwords.txt"),
+			filepath.Join(filepath.Dir(wd), "tools", "wordlists", "passwords.txt"),
 		)
 	}
 
@@ -248,7 +339,14 @@ func johnHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmd := execJohn(args)
+	cmd, err := execJohn(args)
+	if err != nil {
+		fmt.Fprintf(w, "data: ERROR: %s\n\n", err)
+		fmt.Fprintf(w, "data: EXIT_CODE: 1\n\n")
+		fmt.Fprintf(w, "data: DONE\n\n")
+		flusher.Flush()
+		return
+	}
 	streamProcess(w, flusher, cmd)
 }
 
@@ -332,9 +430,16 @@ func validateJohnArgs(args []string) ([]string, error) {
 	return clean, nil
 }
 
-func execJohn(cmd []string) *exec.Cmd {
+func execJohn(cmd []string) (*exec.Cmd, error) {
+	johnPath, err := toolmanager.EnsureInstalled("john", func(msg string) {
+		log.Println(msg)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("john not available: %w", err)
+	}
+
 	profile := profilePath("john.profile")
-	return sandboxedCommand("john", cmd, profile)
+	return sandboxedCommand(johnPath, cmd, profile), nil
 }
 
 /* ---------------- SAFE EXECUTION ---------------- */
@@ -349,12 +454,36 @@ func runToolRequest(w http.ResponseWriter, req ToolRequest) {
 	log.Printf("TOOL EXEC: %s %v %s (profile=%s)",
 		req.Binary, req.Args, req.Target, profile)
 
+	lookupName := req.BinaryName
+	if lookupName == "" {
+		lookupName = req.Binary
+	}
+
+	// Auto-download binary if not installed
+	resolvedBinary, err := toolmanager.EnsureInstalled(lookupName, func(msg string) {
+		fmt.Fprintf(w, "data: [rootless] %s\n\n", msg)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	})
+	if err != nil {
+		fmt.Fprintf(w, "data: ERROR: could not install %s: %s\n\n", lookupName, err)
+		fmt.Fprintf(w, "data: EXIT_CODE: 1\n\n")
+		fmt.Fprintf(w, "data: DONE\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		return
+	}
+	req.Binary = resolvedBinary
+
 	finalArgs := append([]string{}, req.Args...)
 	if req.Target != "" {
 		finalArgs = append(finalArgs, req.Target)
 	}
 
-	cmd := sandboxedCommand(req.Binary, finalArgs, profile)
+	log.Printf("RESOLVED BINARY: %s", resolvedBinary)
+	cmd := sandboxedCommand(resolvedBinary, finalArgs, profile, extraFirejailWhitelist(finalArgs)...)
 	streamProcess(w, flusher, cmd)
 }
 
@@ -424,12 +553,33 @@ func streamProcess(w http.ResponseWriter, flusher http.Flusher, cmd *exec.Cmd) {
 	flusher.Flush()
 }
 
+/* ---------------- TOOL STATUS HANDLER ---------------- */
+
+// GET /tool-status?tool=nmap
+// Returns JSON: {"tool":"nmap","installed":true,"path":"/home/user/.rootless/bin/nmap"}
+func toolStatusHandler(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("tool")
+	if name == "" {
+		http.Error(w, "missing tool param", http.StatusBadRequest)
+		return
+	}
+	installed := toolmanager.IsInstalled(name)
+	path := ""
+	if installed {
+		path, _ = toolmanager.BinaryPath(name)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	fmt.Fprintf(w, `{"tool":%q,"installed":%v,"path":%q}`, name, installed, path)
+}
+
 /* ---------------- MAIN ---------------- */
 
 func main() {
 	http.HandleFunc("/run-system", systemHandler)
 	http.HandleFunc("/run-john", johnHandler)
+	http.HandleFunc("/tool-status", toolStatusHandler)
 
-	log.Println("Go sandbox listening on :9000")
-	log.Fatal(http.ListenAndServe(":9000", nil))
+	log.Println("Go sandbox listening on 127.0.0.1:9000")
+	log.Fatal(http.ListenAndServe("127.0.0.1:9000", nil))
 }
